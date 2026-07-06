@@ -93,23 +93,6 @@ function monthlyOverall(records, months) {
 
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-function signedPct(n, d = 1) { return (n >= 0 ? "+" : "") + PCT(n, d); }
-
-function classifyDriver(first, last) {
-  const priceF = first.qty ? first.revenue / first.qty : 0;
-  const priceL = last.qty ? last.revenue / last.qty : 0;
-  const costF = first.qty ? first.cost / first.qty : 0;
-  const costL = last.qty ? last.cost / last.qty : 0;
-  const priceChg = priceF ? ((priceL - priceF) / priceF) * 100 : 0;
-  const costChg = costF ? ((costL - costF) / costF) * 100 : 0;
-  const gap = costChg - priceChg;
-  if (gap > 5 && costChg > 0) return `рост себестоимости (${signedPct(costChg)}) обгоняет цену (${signedPct(priceChg)})`;
-  if (gap > 5 && costChg <= 0) return `цена снижается быстрее себестоимости (цена ${signedPct(priceChg)}, себестоимость ${signedPct(costChg)}) — скидки съедают маржу`;
-  if (priceChg < -3 && gap <= 5) return `снижение цены реализации (${signedPct(priceChg)}), скидки/акции`;
-  if (Math.abs(priceChg) < 3 && Math.abs(costChg) < 3) return "изменение структуры продаж (микс), цена и себестоимость почти не менялись";
-  return `смешанный эффект: цена ${signedPct(priceChg)}, себестоимость ${signedPct(costChg)}`;
-}
-
 function declineTable(records, dimension, months) {
   const keyFn = dimension === "sku"
     ? (r) => r.sku
@@ -126,27 +109,37 @@ function declineTable(records, dimension, months) {
   for (const [key, recs] of grouped) {
     const byMonth = aggregate(recs, (r) => r.monthIdx);
     const monthKeys = [...byMonth.keys()].sort((a, b) => a - b);
-    if (monthKeys.length < 2) continue;
-    const first = byMonth.get(monthKeys[0]);
-    const last = byMonth.get(monthKeys[monthKeys.length - 1]);
     const periodRevenue = recs.reduce((s, r) => s + r.revenue, 0);
     if (totalRevenue > 0 && periodRevenue / totalRevenue < minShare) continue;
-    const delta = last.marginPct - first.marginPct;
+    const periodCost = recs.reduce((s, r) => s + r.cost, 0);
+    const periodMarginTg = recs.reduce((s, r) => s + r.marginTg, 0);
+    const periodMarginPct = periodRevenue !== 0 ? (periodMarginTg / periodRevenue) * 100 : 0;
+    let delta = null;
+    if (monthKeys.length >= 2) {
+      const first = byMonth.get(monthKeys[0]);
+      const last = byMonth.get(monthKeys[monthKeys.length - 1]);
+      delta = last.marginPct - first.marginPct;
+    }
+    const monthlyMarginPct = months.map((m) => (byMonth.has(m) ? byMonth.get(m).marginPct : null));
     rows.push({
       key,
       category: recs[0].category,
       factory: recs[0].factory,
       periodRevenue,
+      periodCost,
+      periodMarginTg,
       share: totalRevenue ? (periodRevenue / totalRevenue) * 100 : 0,
-      firstMonth: cap(MONTH_ORDER[monthKeys[0]]),
-      lastMonth: cap(MONTH_ORDER[monthKeys[monthKeys.length - 1]]),
-      firstMarginPct: first.marginPct,
-      lastMarginPct: last.marginPct,
+      periodMarginPct,
+      monthlyMarginPct,
       delta,
-      driver: classifyDriver(first, last),
     });
   }
-  rows.sort((a, b) => a.delta - b.delta);
+  rows.sort((a, b) => {
+    if (a.delta !== null && b.delta !== null) return a.delta - b.delta;
+    if (a.delta !== null) return -1;
+    if (b.delta !== null) return 1;
+    return a.periodMarginPct - b.periodMarginPct;
+  });
   return rows;
 }
 
@@ -175,7 +168,12 @@ function xyzAnalysis(records, months) {
     m.set(r.monthIdx, (m.get(r.monthIdx) || 0) + r.qty);
   }
   const result = new Map();
+  const canCompute = months.length >= 2;
   for (const [sku, monthMap] of bySku) {
+    if (!canCompute) {
+      result.set(sku, { cv: NaN, xyz: null, activeCount: monthMap.size });
+      continue;
+    }
     const series = months.map((m) => monthMap.get(m) || 0);
     const mean = series.reduce((s, v) => s + v, 0) / series.length;
     const variance = series.reduce((s, v) => s + (v - mean) ** 2, 0) / series.length;
@@ -204,6 +202,7 @@ const CELL_HINTS = {
 };
 
 let STATE = { rows: [], sortKey: "revenue", sortDir: -1, page: 1, pageSize: 50, search: "", classFilter: "" };
+let RAW = { records: [], months: [] };
 
 async function main() {
   try {
@@ -214,7 +213,17 @@ async function main() {
     const records = buildRecords(rows, blocks);
     const months = activeMonths(records);
     if (months.length === 0) throw new Error("В таблице пока нет данных о продажах ни за один месяц.");
-    render(records, months, blocks);
+    RAW = { records, months };
+
+    document.getElementById("loadingState").hidden = true;
+    const startLabel = cap(MONTH_ORDER[months[0]]);
+    const endLabel = cap(MONTH_ORDER[months[months.length - 1]]);
+    document.getElementById("periodLabel").textContent =
+      `Данные в таблице: ${startLabel} – ${endLabel} 2026 · ${blocks.length} мес. в таблице, ${months.length} с данными`;
+    document.getElementById("periodSection").hidden = false;
+
+    setupPeriodControls(months);
+    applyPeriod();
     document.getElementById("updatedAt").textContent = "Обновлено: " + new Date().toLocaleString("ru-RU");
   } catch (e) {
     document.getElementById("loadingState").hidden = true;
@@ -225,13 +234,35 @@ async function main() {
   }
 }
 
-function render(records, months, blocks) {
-  document.getElementById("loadingState").hidden = true;
-  const startLabel = cap(MONTH_ORDER[months[0]]);
-  const endLabel = cap(MONTH_ORDER[months[months.length - 1]]);
-  document.getElementById("periodLabel").textContent =
-    `Период: ${startLabel} – ${endLabel} 2026 · ${blocks.length} мес. в таблице, ${months.length} с данными`;
+function setupPeriodControls(months) {
+  const fromSel = document.getElementById("periodFrom");
+  const toSel = document.getElementById("periodTo");
+  const opts = months.map((m) => `<option value="${m}">${cap(MONTH_ORDER[m])}</option>`).join("");
+  fromSel.innerHTML = opts;
+  toSel.innerHTML = opts;
+  fromSel.value = months[0];
+  toSel.value = months[months.length - 1];
+  fromSel.onchange = () => {
+    if (Number(fromSel.value) > Number(toSel.value)) toSel.value = fromSel.value;
+    applyPeriod();
+  };
+  toSel.onchange = () => {
+    if (Number(toSel.value) < Number(fromSel.value)) fromSel.value = toSel.value;
+    applyPeriod();
+  };
+}
 
+function applyPeriod() {
+  const from = Number(document.getElementById("periodFrom").value);
+  const to = Number(document.getElementById("periodTo").value);
+  const months = RAW.months.filter((m) => m >= from && m <= to);
+  const records = RAW.records.filter((r) => r.monthIdx >= from && r.monthIdx <= to);
+  document.getElementById("periodInfo").textContent =
+    months.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${months.length}`;
+  render(records, months);
+}
+
+function render(records, months) {
   const monthly = monthlyOverall(records, months);
   renderKpis(monthly);
   renderTrendCharts(monthly);
@@ -241,21 +272,20 @@ function render(records, months, blocks) {
     factory: declineTable(records, "factory", months),
     sku: declineTable(records, "sku", months),
   };
-  renderDeclineSection(declineData);
+  renderDeclineSection(declineData, months);
 
   const abc = abcAnalysis(records);
   const xyz = xyzAnalysis(records, months);
+  const hasXyz = months.length >= 2;
   const combined = [...abc.entries()].map(([sku, a]) => {
-    const x = xyz.get(sku) || { cv: Infinity, xyz: "Z", activeCount: 0 };
-    return { sku, ...a, cv: x.cv, xyz: x.xyz, activeCount: x.activeCount, cls: a.abc + x.xyz };
+    const x = xyz.get(sku) || { cv: NaN, xyz: null, activeCount: 0 };
+    return { sku, ...a, cv: x.cv, xyz: x.xyz, activeCount: x.activeCount, cls: a.abc + (x.xyz || "") };
   });
-  renderAbcXyz(combined);
-  renderInsights(monthly, declineData, combined);
+  renderAbcXyz(combined, hasXyz);
 
   document.getElementById("kpiSection").hidden = false;
   document.getElementById("trendSection").hidden = false;
   document.getElementById("declineSection").hidden = false;
-  document.getElementById("insightsSection").hidden = false;
   document.getElementById("abcxyzSection").hidden = false;
 }
 
@@ -299,58 +329,102 @@ function renderTrendCharts(monthly) {
       datasets: [
         { label: "Выручка", data: monthly.map((m) => m.revenue), backgroundColor: "#4da3ff" },
         { label: "Себестоимость", data: monthly.map((m) => m.cost), backgroundColor: "#f5b84d" },
-        { label: "Маржа, тг", data: monthly.map((m) => m.marginTg), type: "line", borderColor: "#3ecf8e", backgroundColor: "#3ecf8e", tension: 0.3 },
+        { label: "Маржа, тг", data: monthly.map((m) => m.marginTg), backgroundColor: "#3ecf8e" },
       ],
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#e7edf2" } } },
       scales: { x: { ticks: { color: "#8a97a3" } }, y: { ticks: { color: "#8a97a3" } } } },
   });
 
+  const crosshairPlugin = {
+    id: "marginCrosshair",
+    afterEvent(chart, args) {
+      const e = args.event;
+      if (e.type === "mousemove") {
+        chart.$crosshairY = e.y;
+        chart.draw();
+      } else if (e.type === "mouseout") {
+        chart.$crosshairY = null;
+        chart.draw();
+      }
+    },
+    afterDraw(chart) {
+      const y = chart.$crosshairY;
+      if (y == null) return;
+      const { ctx, chartArea, scales } = chart;
+      if (y < chartArea.top || y > chartArea.bottom) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.strokeStyle = "rgba(231,237,242,0.6)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      const value = scales.y.getValueForPixel(y);
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#e7edf2";
+      ctx.font = "11px -apple-system, sans-serif";
+      ctx.fillText(PCT(value), chartArea.left + 6, y - 4);
+      ctx.restore();
+    },
+  };
+
   charts.marginPct = new Chart(document.getElementById("marginPctChart"), {
     type: "line",
     data: { labels, datasets: [{ label: "Маржа, %", data: monthly.map((m) => m.marginPct), borderColor: "#4da3ff", backgroundColor: "rgba(77,163,255,0.15)", fill: true, tension: 0.3 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#e7edf2" } } },
       scales: { x: { ticks: { color: "#8a97a3" } }, y: { ticks: { color: "#8a97a3" } } } },
+    plugins: [crosshairPlugin],
   });
 }
 
 let currentDim = "category";
-function renderDeclineSection(data) {
+function renderDeclineSection(data, months) {
   document.querySelectorAll("#declineTabs .tab").forEach((btn) => {
     btn.onclick = () => {
       document.querySelectorAll("#declineTabs .tab").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentDim = btn.dataset.dim;
-      drawDeclineTable(data[currentDim], currentDim);
+      drawDeclineTable(data[currentDim], currentDim, months);
     };
   });
-  drawDeclineTable(data[currentDim], currentDim);
+  drawDeclineTable(data[currentDim], currentDim, months);
 }
 
-function drawDeclineTable(rows, dim) {
+function drawDeclineTable(rows, dim, months) {
   const label = dim === "sku" ? "Номенклатура" : dim === "category" ? "Категория" : "Фабрика";
   const table = document.getElementById("declineTable");
+  const monthTh = months.map((m) => `<th>${cap(MONTH_ORDER[m])}</th>`).join("");
+  const showDelta = months.length > 1;
+  const colCount = 3 + months.length + (showDelta ? 1 : 0);
   table.querySelector("thead").innerHTML = `<tr>
-    <th>${label}</th><th>Доля выручки</th><th>Маржа% (начало)</th><th>Маржа% (конец)</th><th>Δ п.п.</th><th>Вероятная причина</th>
+    <th>${label}</th><th>Доля выручки</th><th>Маржа %, итого</th>${monthTh}${showDelta ? "<th>Δ п.п.</th>" : ""}
   </tr>`;
   const top = rows.slice(0, 30);
-  table.querySelector("tbody").innerHTML = top.map((r) => `
+  table.querySelector("tbody").innerHTML = top.map((r) => {
+    const monthTds = r.monthlyMarginPct.map((v) => `<td class="num">${v == null ? "—" : PCT(v)}</td>`).join("");
+    const deltaTd = showDelta
+      ? `<td class="num delta ${r.delta == null ? "" : r.delta < 0 ? "down" : "up"}">${r.delta == null ? "—" : (r.delta >= 0 ? "+" : "") + r.delta.toFixed(1).replace(".", ",")}</td>`
+      : "";
+    return `
     <tr>
       <td>${escapeHtml(r.key)}${dim === "sku" ? `<br><span class="muted">${escapeHtml(r.category)} / ${escapeHtml(r.factory)}</span>` : ""}</td>
       <td class="num">${PCT(r.share)}</td>
-      <td class="num">${PCT(r.firstMarginPct)} (${r.firstMonth})</td>
-      <td class="num">${PCT(r.lastMarginPct)} (${r.lastMonth})</td>
-      <td class="num delta ${r.delta < 0 ? "down" : "up"}">${r.delta >= 0 ? "+" : ""}${r.delta.toFixed(1).replace(".", ",")}</td>
-      <td>${r.driver}</td>
-    </tr>`).join("") || `<tr><td colspan="6" class="muted">Нет данных, удовлетворяющих порогу значимости.</td></tr>`;
+      <td class="num">${PCT(r.periodMarginPct)}</td>
+      ${monthTds}
+      ${deltaTd}
+    </tr>`;
+  }).join("") || `<tr><td colspan="${colCount}" class="muted">Нет данных, удовлетворяющих порогу значимости.</td></tr>`;
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
-function renderAbcXyz(rows) {
+function renderAbcXyz(rows, hasXyz) {
   STATE.rows = rows;
   const classFilter = document.getElementById("classFilter");
-  classFilter.innerHTML = `<option value="">Все классы</option>` + ["AX","AY","AZ","BX","BY","BZ","CX","CY","CZ"].map((c) => `<option value="${c}">${c}</option>`).join("");
+  const classOptions = hasXyz ? ["AX","AY","AZ","BX","BY","BZ","CX","CY","CZ"] : ["A","B","C"];
+  classFilter.innerHTML = `<option value="">Все классы</option>` + classOptions.map((c) => `<option value="${c}">${c}</option>`).join("");
   classFilter.onchange = () => { STATE.classFilter = classFilter.value; STATE.page = 1; drawAbcTable(); };
   document.getElementById("skuSearch").oninput = (e) => { STATE.search = e.target.value.toLowerCase(); STATE.page = 1; drawAbcTable(); };
   document.querySelectorAll("#abcxyzTable th").forEach((th) => {
@@ -363,17 +437,31 @@ function renderAbcXyz(rows) {
 
   const matrixTotal = rows.reduce((s, r) => s + r.revenue, 0);
   const matrix = document.getElementById("matrixGrid");
-  const order = ["AX","AY","AZ","BX","BY","BZ","CX","CY","CZ"];
-  matrix.innerHTML = order.map((cls) => {
-    const cellRows = rows.filter((r) => r.cls === cls);
-    const revShare = matrixTotal ? (cellRows.reduce((s, r) => s + r.revenue, 0) / matrixTotal) * 100 : 0;
-    return `<div class="matrix-cell">
-      <div class="cls-name">${cls}</div>
-      <div class="cls-count">${cellRows.length} SKU</div>
-      <div class="cls-share">${PCT(revShare)} выручки</div>
-      <div class="cls-hint">${CELL_HINTS[cls]}</div>
-    </div>`;
-  }).join("");
+  if (!hasXyz) {
+    matrix.innerHTML = `<div class="matrix-cell" style="grid-column: 1 / -1;">
+      <div class="cls-hint">Для XYZ-анализа выберите период не короче 2 месяцев. Сейчас показан только ABC (по вкладу в выручку выбранного периода).</div>
+    </div>` + ["A","B","C"].map((cls) => {
+      const cellRows = rows.filter((r) => r.cls === cls);
+      const revShare = matrixTotal ? (cellRows.reduce((s, r) => s + r.revenue, 0) / matrixTotal) * 100 : 0;
+      return `<div class="matrix-cell">
+        <div class="cls-name">${cls}</div>
+        <div class="cls-count">${cellRows.length} SKU</div>
+        <div class="cls-share">${PCT(revShare)} выручки</div>
+      </div>`;
+    }).join("");
+  } else {
+    const order = ["AX","AY","AZ","BX","BY","BZ","CX","CY","CZ"];
+    matrix.innerHTML = order.map((cls) => {
+      const cellRows = rows.filter((r) => r.cls === cls);
+      const revShare = matrixTotal ? (cellRows.reduce((s, r) => s + r.revenue, 0) / matrixTotal) * 100 : 0;
+      return `<div class="matrix-cell">
+        <div class="cls-name">${cls}</div>
+        <div class="cls-count">${cellRows.length} SKU</div>
+        <div class="cls-share">${PCT(revShare)} выручки</div>
+        <div class="cls-hint">${CELL_HINTS[cls]}</div>
+      </div>`;
+    }).join("");
+  }
 
   drawAbcTable();
 }
@@ -406,7 +494,7 @@ function drawAbcTable() {
       <td class="num">${PCT(r.marginPct)}</td>
       <td class="num">${isFinite(r.cv) ? PCT(r.cv, 0) : "—"}</td>
       <td><span class="badge ${r.abc}">${r.abc}</span></td>
-      <td>${r.xyz}</td>
+      <td>${r.xyz || "—"}</td>
       <td>${r.cls}</td>
     </tr>`).join("") || `<tr><td colspan="10" class="muted">Ничего не найдено.</td></tr>`;
 
@@ -418,48 +506,6 @@ function drawAbcTable() {
   }
   pag.innerHTML = pages.map((p) => p === "…" ? `<span class="muted">…</span>` : `<button class="${p === STATE.page ? "active" : ""}" data-p="${p}">${p}</button>`).join("");
   pag.querySelectorAll("button").forEach((b) => b.onclick = () => { STATE.page = parseInt(b.dataset.p, 10); drawAbcTable(); });
-}
-
-function renderInsights(monthly, declineData, combined) {
-  const items = [];
-  const first = monthly[0], last = monthly[monthly.length - 1];
-  if (monthly.length > 1) {
-    const trend = last.marginPct - first.marginPct;
-    items.push(`Маржинальность по всей выручке ${trend < 0 ? "снизилась" : "выросла"} с ${PCT(first.marginPct)} в ${first.label.toLowerCase()} до ${PCT(last.marginPct)} в ${last.label.toLowerCase()} (${trend >= 0 ? "+" : ""}${trend.toFixed(1).replace(".", ",")} п.п.).`);
-  }
-
-  const topCatDeclines = declineData.category.filter((r) => r.delta < -1).slice(0, 3);
-  for (const r of topCatDeclines) {
-    items.push(`По категории «${r.key}» (${PCT(r.share)} выручки периода) маржа упала с ${PCT(r.firstMarginPct)} до ${PCT(r.lastMarginPct)} — ${r.driver}. Нужно пересмотреть закупочную цену и розничную наценку по этой категории.`);
-  }
-  const topFactDeclines = declineData.factory.filter((r) => r.delta < -1).slice(0, 2);
-  for (const r of topFactDeclines) {
-    items.push(`По фабрике «${r.key}» (${PCT(r.share)} выручки периода) маржа упала с ${PCT(r.firstMarginPct)} до ${PCT(r.lastMarginPct)} — ${r.driver}. Нужно пересогласовать закупочные условия с поставщиком или искать альтернативную фабрику по этой позиции.`);
-  }
-  const topSkuDeclines = declineData.sku.filter((r) => r.delta < -5).slice(0, 3);
-  for (const r of topSkuDeclines) {
-    items.push(`Позиция «${r.key}» потеряла ${Math.abs(r.delta).toFixed(1).replace(".", ",")} п.п. маржи (${r.driver}) — нужно скорректировать цену продажи или заменить поставщика по этой номенклатуре.`);
-  }
-
-  const sparse = combined.filter((r) => r.activeCount <= 2).length;
-  if (combined.length > 0 && sparse / combined.length > 0.5) {
-    items.push(`${sparse} из ${combined.length} номенклатур (${PCT((sparse / combined.length) * 100, 0)}) продавались всего 1-2 месяца из ${monthly.length} — это нормально при постоянном обновлении партий/принтов, но по этой причине почти весь ассортимент попадает в класс Z. Для решений по страховому запасу ориентируйтесь на разрез по категориям и фабрикам выше, а не на отдельные номенклатуры.`);
-  }
-
-  const cz = combined.filter((r) => r.cls === "CZ");
-  const az = combined.filter((r) => r.cls === "AZ");
-  const ax = combined.filter((r) => r.cls === "AX" || r.cls === "AY");
-  if (cz.length > 0) {
-    items.push(`${cz.length} позиций попали в класс CZ (низкий вклад в выручку, нерегулярный спрос) — нужно вывести их из постоянного ассортимента и распродать остатки.`);
-  }
-  if (az.length > 0) {
-    items.push(`${az.length} позиций в классе AZ дают заметную выручку, но спрос нерегулярный — нужно закупать их под подтверждённые заказы, а не держать на складе постоянно.`);
-  }
-  if (ax.length > 0) {
-    items.push(`Держите запас в первую очередь под ${ax.length} позиций класса AX/AY — они формируют основную выручку при предсказуемом спросе.`);
-  }
-
-  document.getElementById("insightsList").innerHTML = items.map((i) => `<li>${i}</li>`).join("");
 }
 
 document.getElementById("refreshBtn").addEventListener("click", () => {

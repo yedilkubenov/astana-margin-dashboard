@@ -87,6 +87,17 @@ main { padding: 24px 28px 60px; max-width: 1400px; margin: 0 auto; }
 .kpi-delta.up { color: var(--good); }
 .kpi-delta.down { color: var(--bad); }
 
+.period-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.period-label-text { font-weight: 600; font-size: 13px; }
+.period-controls select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .chart-box { position: relative; height: 280px; }
 @media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
@@ -115,9 +126,6 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge.C { background: rgba(255,99,99,0.15); color: var(--bad); }
 .delta.down { color: var(--bad); font-weight: 600; }
 .delta.up { color: var(--good); font-weight: 600; }
-
-.insights-list { line-height: 1.6; padding-left: 20px; }
-.insights-list li { margin-bottom: 8px; }
 
 .matrix-grid {
   display: grid;

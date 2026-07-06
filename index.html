@@ -25,6 +25,16 @@
   <div id="loadingState" class="state-msg">Загружаю данные из Google Sheets…</div>
   <div id="errorState" class="state-msg error" hidden></div>
 
+  <section id="periodSection" class="card" hidden>
+    <div class="period-controls">
+      <span class="period-label-text">Период анализа:</span>
+      <select id="periodFrom"></select>
+      <span class="muted">—</span>
+      <select id="periodTo"></select>
+      <span class="muted" id="periodInfo"></span>
+    </div>
+  </section>
+
   <section id="kpiSection" class="kpi-grid" hidden></section>
 
   <section id="trendSection" class="card" hidden>
@@ -37,7 +47,7 @@
 
   <section id="declineSection" class="card" hidden>
     <h2>Где просела маржа</h2>
-    <p class="muted">Сравнение первого и последнего месяца с продажами в периоде. Отсортировано по наибольшему падению маржи, %. Показаны только позиции с заметной долей в выручке периода.</p>
+    <p class="muted">Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно. Показаны только позиции с заметной долей в выручке периода.</p>
     <div class="tabs" id="declineTabs">
       <button class="tab active" data-dim="category">Категории</button>
       <button class="tab" data-dim="factory">Фабрики</button>
@@ -51,14 +61,12 @@
     </div>
   </section>
 
-  <section id="insightsSection" class="card" hidden>
-    <h2>Выводы и рекомендации</h2>
-    <ul id="insightsList" class="insights-list"></ul>
-  </section>
-
   <section id="abcxyzSection" class="card" hidden>
     <h2>ABC-XYZ анализ по номенклатуре</h2>
-    <p class="muted">ABC — по вкладу в выручку периода (A ≤80% накопленно, B ≤95%, C — остальное). XYZ — по стабильности продаж по месяцам (X ≤10% коэф. вариации, Y 10–25%, Z &gt;25%).</p>
+    <p class="muted">
+      ABC — по вкладу номенклатуры в выручку выбранного периода: сортируем по выручке по убыванию и берём нарастающий итог; пока накопленный % ≤80% от общей выручки — класс A, до 95% — B, остальное — C.<br>
+      XYZ — по стабильности помесячных продаж (количество, шт.): CV, % (коэффициент вариации) = стандартное отклонение помесячных продаж ÷ среднемесячные продажи × 100. CV ≤10% — стабильный спрос (X), 10–25% — умеренные колебания (Y), &gt;25% или продажи менее чем в 3 месяцах периода — нерегулярный спрос (Z). Для XYZ нужно выбрать период не короче 2 месяцев.
+    </p>
     <div id="matrixGrid" class="matrix-grid"></div>
     <div class="table-controls">
       <input type="text" id="skuSearch" placeholder="Поиск по номенклатуре / категории / фабрике…">
