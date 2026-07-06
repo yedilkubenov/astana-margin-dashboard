@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Астана 2025-2026 — Маржинальность и ABC-XYZ</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>Маржинальность по товарным позициям</h1>
+    <div class="subtitle" id="periodLabel">Загрузка данных…</div>
+  </div>
+  <div class="topbar-actions">
+    <span id="updatedAt" class="muted"></span>
+    <button id="refreshBtn">Обновить</button>
+  </div>
+</header>
+
+<main id="app">
+  <div id="loadingState" class="state-msg">Загружаю данные из Google Sheets…</div>
+  <div id="errorState" class="state-msg error" hidden></div>
+
+  <section id="kpiSection" class="kpi-grid" hidden></section>
+
+  <section id="trendSection" class="card" hidden>
+    <h2>Динамика по месяцам</h2>
+    <div class="chart-row">
+      <div class="chart-box"><canvas id="revCostChart"></canvas></div>
+      <div class="chart-box"><canvas id="marginPctChart"></canvas></div>
+    </div>
+  </section>
+
+  <section id="declineSection" class="card" hidden>
+    <h2>Где просела маржа</h2>
+    <p class="muted">Сравнение первого и последнего месяца с продажами в периоде. Отсортировано по наибольшему падению маржи, %. Показаны только позиции с заметной долей в выручке периода.</p>
+    <div class="tabs" id="declineTabs">
+      <button class="tab active" data-dim="category">Категории</button>
+      <button class="tab" data-dim="factory">Фабрики</button>
+      <button class="tab" data-dim="sku">Номенклатура</button>
+    </div>
+    <div class="table-wrap">
+      <table id="declineTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="insightsSection" class="card" hidden>
+    <h2>Выводы и рекомендации</h2>
+    <ul id="insightsList" class="insights-list"></ul>
+  </section>
+
+  <section id="abcxyzSection" class="card" hidden>
+    <h2>ABC-XYZ анализ по номенклатуре</h2>
+    <p class="muted">ABC — по вкладу в выручку периода (A ≤80% накопленно, B ≤95%, C — остальное). XYZ — по стабильности продаж по месяцам (X ≤10% коэф. вариации, Y 10–25%, Z &gt;25%).</p>
+    <div id="matrixGrid" class="matrix-grid"></div>
+    <div class="table-controls">
+      <input type="text" id="skuSearch" placeholder="Поиск по номенклатуре / категории / фабрике…">
+      <select id="classFilter">
+        <option value="">Все классы</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table id="abcxyzTable">
+        <thead>
+          <tr>
+            <th data-key="sku">Номенклатура</th>
+            <th data-key="category">Категория</th>
+            <th data-key="factory">Фабрика</th>
+            <th data-key="revenue">Выручка периода</th>
+            <th data-key="revShare">Доля, %</th>
+            <th data-key="marginPct">Маржа, %</th>
+            <th data-key="cv">CV, %</th>
+            <th data-key="abc">ABC</th>
+            <th data-key="xyz">XYZ</th>
+            <th data-key="cls">Класс</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+  </section>
+</main>
+
+<footer class="footer">
+  Данные подтягиваются напрямую из Google Sheets при каждом открытии страницы. Источник:
+  <a href="https://docs.google.com/spreadsheets/d/1vpfKyGL95e_c1aK919Qkj_lMxlC9fjHwayWy85CGowg/edit" target="_blank" rel="noopener">таблица «Астана 2025-2026 / Запас товара»</a>.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+:root {
+  --bg: #0f1418;
+  --panel: #161c22;
+  --border: #26303a;
+  --text: #e7edf2;
+  --muted: #8a97a3;
+  --accent: #4da3ff;
+  --good: #3ecf8e;
+  --bad: #ff6363;
+  --warn: #f5b84d;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.topbar h1 { margin: 0; font-size: 20px; }
+.subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.topbar-actions { display: flex; align-items: center; gap: 12px; }
+.muted { color: var(--muted); font-size: 13px; }
+
+button {
+  background: var(--accent);
+  color: #06121f;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover { opacity: 0.9; }
+
+main { padding: 24px 28px 60px; max-width: 1400px; margin: 0 auto; }
+
+.state-msg {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+  font-size: 15px;
+}
+.state-msg.error { color: var(--bad); }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-bottom: 22px;
+}
+.card h2 { margin-top: 0; font-size: 16px; }
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.kpi-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.kpi-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.kpi-value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+.kpi-delta { font-size: 13px; margin-top: 6px; }
+.kpi-delta.up { color: var(--good); }
+.kpi-delta.down { color: var(--bad); }
+
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.chart-box { position: relative; height: 280px; }
+@media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tab.active { background: var(--accent); color: #06121f; border-color: var(--accent); }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
+tbody tr:hover { background: rgba(255,255,255,0.03); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.badge.A { background: rgba(62,207,142,0.15); color: var(--good); }
+.badge.B { background: rgba(245,184,77,0.15); color: var(--warn); }
+.badge.C { background: rgba(255,99,99,0.15); color: var(--bad); }
+.delta.down { color: var(--bad); font-weight: 600; }
+.delta.up { color: var(--good); font-weight: 600; }
+
+.insights-list { line-height: 1.6; padding-left: 20px; }
+.insights-list li { margin-bottom: 8px; }
+
+.matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.matrix-cell {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.matrix-cell .cls-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.matrix-cell .cls-count { font-size: 22px; font-weight: 700; }
+.matrix-cell .cls-share { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.matrix-cell .cls-hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+.table-controls { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.table-controls input, .table-controls select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.table-controls input { flex: 1; min-width: 220px; }
+
+.pagination { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+.pagination button {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 10px;
+}
+.pagination button.active { background: var(--accent); color: #06121f; }
+
+.footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 20px;
+}
+.footer a { color: var(--accent); }
