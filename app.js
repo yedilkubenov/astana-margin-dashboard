@@ -78,6 +78,15 @@ function activeMonths(records) {
   return [...set].sort((a, b) => a - b);
 }
 
+// Composite key that sorts correctly across a year boundary (e.g. Dec 2025 < Jan 2026).
+function periodKeyOf(r) { return r.year * 12 + r.monthIdx; }
+function keyToLabel(key) {
+  const month = ((key % 12) + 12) % 12;
+  const year = Math.round((key - month) / 12);
+  return `${cap(MONTH_ORDER[month])} ${year}`;
+}
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
 function aggregate(records, keyFn) {
   const map = new Map();
   for (const r of records) {
@@ -100,9 +109,9 @@ function groupBy(records, keyFn) {
   return map;
 }
 
-function monthlyOverall(records, months) {
-  const byMonth = aggregate(records, (r) => r.monthIdx);
-  return months.map((m) => ({ monthIdx: m, label: cap(MONTH_ORDER[m]), ...(byMonth.get(m) || { qty: 0, revenue: 0, cost: 0, marginTg: 0, marginPct: 0 }) }));
+function monthlyOverall(records, keys) {
+  const byKey = aggregate(records, periodKeyOf);
+  return keys.map((k) => ({ key: k, label: keyToLabel(k), ...(byKey.get(k) || { qty: 0, revenue: 0, cost: 0, marginTg: 0, marginPct: 0 }) }));
 }
 
 function periodTotals(monthly) {
@@ -116,20 +125,20 @@ function periodTotals(monthly) {
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function periodLabelText(sel) {
-  const fromName = cap(MONTH_ORDER[sel.from]);
-  const toName = cap(MONTH_ORDER[sel.to]);
-  return sel.from === sel.to ? `${fromName} ${sel.year}` : `${fromName}–${toName} ${sel.year}`;
+  const fromLabel = keyToLabel(sel.fromKey);
+  const toLabel = keyToLabel(sel.toKey);
+  return sel.fromKey === sel.toKey ? fromLabel : `${fromLabel} – ${toLabel}`;
 }
 
 // ---------- single-period decline table (no comparison) ----------
-function declineTable(records, dimension, months) {
+function declineTable(records, dimension, keys) {
   const keyFn = dimension === "sku" ? (r) => r.sku : (r) => r[dimension];
   const grouped = groupBy(records, keyFn);
   const totalRevenue = records.reduce((s, r) => s + r.revenue, 0);
   const minShare = dimension === "sku" ? 0.001 : 0.003; // 0.1% / 0.3% materiality floor
   const rows = [];
-  for (const [key, recs] of grouped) {
-    const byMonth = aggregate(recs, (r) => r.monthIdx);
+  for (const [entKey, recs] of grouped) {
+    const byMonth = aggregate(recs, periodKeyOf);
     const monthKeys = [...byMonth.keys()].sort((a, b) => a - b);
     const periodRevenue = recs.reduce((s, r) => s + r.revenue, 0);
     if (totalRevenue > 0 && periodRevenue / totalRevenue < minShare) continue;
@@ -141,9 +150,9 @@ function declineTable(records, dimension, months) {
       const last = byMonth.get(monthKeys[monthKeys.length - 1]);
       delta = last.marginPct - first.marginPct;
     }
-    const monthlyMarginPct = months.map((m) => (byMonth.has(m) ? byMonth.get(m).marginPct : null));
+    const monthlyMarginPct = keys.map((k) => (byMonth.has(k) ? byMonth.get(k).marginPct : null));
     rows.push({
-      key,
+      key: entKey,
       category: recs[0].category,
       factory: recs[0].factory,
       periodRevenue,
@@ -222,21 +231,22 @@ function abcAnalysis(records) {
   return result;
 }
 
-function xyzAnalysis(records, months) {
+function xyzAnalysis(records, keys) {
   const bySku = new Map();
   for (const r of records) {
     if (!bySku.has(r.sku)) bySku.set(r.sku, new Map());
     const m = bySku.get(r.sku);
-    m.set(r.monthIdx, (m.get(r.monthIdx) || 0) + r.qty);
+    const k = periodKeyOf(r);
+    m.set(k, (m.get(k) || 0) + r.qty);
   }
   const result = new Map();
-  const canCompute = months.length >= 2;
+  const canCompute = keys.length >= 2;
   for (const [sku, monthMap] of bySku) {
     if (!canCompute) {
       result.set(sku, { cv: NaN, xyz: null, activeCount: monthMap.size });
       continue;
     }
-    const series = months.map((m) => monthMap.get(m) || 0);
+    const series = keys.map((k) => monthMap.get(k) || 0);
     const mean = series.reduce((s, v) => s + v, 0) / series.length;
     const variance = series.reduce((s, v) => s + (v - mean) ** 2, 0) / series.length;
     const cv = mean ? (Math.sqrt(variance) / mean) * 100 : Infinity;
@@ -264,7 +274,7 @@ const CELL_HINTS = {
 };
 
 let STATE = { rows: [], sortKey: "revenue", sortDir: -1, page: 1, pageSize: 50, search: "", classFilter: "" };
-let RAW = { perYear: {}, years: [] };
+let RAW = { perYear: {}, years: [], allRecords: [], timeline: [] };
 
 async function main() {
   try {
@@ -284,7 +294,12 @@ async function main() {
     for (const entry of fetched) if (entry) perYear[entry[0]] = entry[1];
     const years = Object.keys(perYear).map(Number).sort((a, b) => a - b);
     if (years.length === 0) throw new Error("В таблице пока нет данных о продажах ни за один год.");
-    RAW = { perYear, years };
+
+    const allRecords = years.flatMap((y) => perYear[y].records);
+    const keySet = new Set();
+    for (const y of years) for (const m of perYear[y].months) keySet.add(y * 12 + m);
+    const timeline = [...keySet].sort((a, b) => a - b).map((key) => ({ key, label: keyToLabel(key) }));
+    RAW = { perYear, years, allRecords, timeline };
 
     document.getElementById("loadingState").hidden = true;
     const coverage = years.map((y) => {
@@ -306,48 +321,35 @@ async function main() {
   }
 }
 
-function populateYearMonthSelects(yearSel, fromSel, toSel, defaultYear) {
-  yearSel.innerHTML = RAW.years.map((y) => `<option value="${y}">${y}</option>`).join("");
-  yearSel.value = defaultYear;
-  fillMonthOptions(yearSel, fromSel, toSel, true);
-}
-
-function fillMonthOptions(yearSel, fromSel, toSel, selectFullRange) {
-  const year = Number(yearSel.value);
-  const months = RAW.perYear[year].months;
-  const opts = months.map((m) => `<option value="${m}">${cap(MONTH_ORDER[m])}</option>`).join("");
-  fromSel.innerHTML = opts;
-  toSel.innerHTML = opts;
-  if (selectFullRange) {
-    fromSel.value = months[0];
-    toSel.value = months[months.length - 1];
-  } else {
-    if (![...fromSel.options].some((o) => o.value === fromSel.value)) fromSel.value = months[0];
-    if (![...toSel.options].some((o) => o.value === toSel.value)) toSel.value = months[months.length - 1];
-  }
-}
-
 function setupPeriodControls() {
-  const yearA = document.getElementById("yearA");
-  const fromA = document.getElementById("periodFromA");
-  const toA = document.getElementById("periodToA");
-  const yearB = document.getElementById("yearB");
-  const fromB = document.getElementById("periodFromB");
-  const toB = document.getElementById("periodToB");
+  const fromA = document.getElementById("fromA");
+  const toA = document.getElementById("toA");
+  const fromB = document.getElementById("fromB");
+  const toB = document.getElementById("toB");
   const compareToggle = document.getElementById("compareToggle");
   const periodBRow = document.getElementById("periodBRow");
 
+  const opts = RAW.timeline.map((t) => `<option value="${t.key}">${t.label}</option>`).join("");
+  fromA.innerHTML = opts; toA.innerHTML = opts;
+  fromB.innerHTML = opts; toB.innerHTML = opts;
+
+  const minKey = RAW.timeline[0].key;
+  const maxKey = RAW.timeline[RAW.timeline.length - 1].key;
+
+  // Default Period A to the latest available year's full range.
   const latestYear = RAW.years[RAW.years.length - 1];
-  const prevYear = RAW.years.length > 1 ? RAW.years[RAW.years.length - 2] : latestYear;
+  const latestYearMonths = RAW.perYear[latestYear].months;
+  const defaultFromA = latestYear * 12 + latestYearMonths[0];
+  const defaultToA = latestYear * 12 + latestYearMonths[latestYearMonths.length - 1];
+  fromA.value = defaultFromA;
+  toA.value = defaultToA;
 
-  populateYearMonthSelects(yearA, fromA, toA, latestYear);
-  populateYearMonthSelects(yearB, fromB, toB, prevYear);
-  // Default Period B to the same month range as Period A (like-for-like YoY), when available.
-  const bMonths = RAW.perYear[prevYear].months;
-  if (bMonths.includes(Number(fromA.value))) fromB.value = fromA.value;
-  if (bMonths.includes(Number(toA.value))) toB.value = toA.value;
+  // Default Period B to the same month range, previous year (clamped to available data).
+  const defaultFromB = clamp(defaultFromA - 12, minKey, maxKey);
+  const defaultToB = clamp(defaultToA - 12, minKey, maxKey);
+  fromB.value = Math.min(defaultFromB, defaultToB);
+  toB.value = Math.max(defaultFromB, defaultToB);
 
-  yearA.onchange = () => { fillMonthOptions(yearA, fromA, toA, true); applyPeriod(); };
   fromA.onchange = () => {
     if (Number(fromA.value) > Number(toA.value)) toA.value = fromA.value;
     applyPeriod();
@@ -356,8 +358,6 @@ function setupPeriodControls() {
     if (Number(toA.value) < Number(fromA.value)) fromA.value = toA.value;
     applyPeriod();
   };
-
-  yearB.onchange = () => { fillMonthOptions(yearB, fromB, toB, true); applyPeriod(); };
   fromB.onchange = () => {
     if (Number(fromB.value) > Number(toB.value)) toB.value = fromB.value;
     applyPeriod();
@@ -366,7 +366,6 @@ function setupPeriodControls() {
     if (Number(toB.value) < Number(fromB.value)) fromB.value = toB.value;
     applyPeriod();
   };
-
   compareToggle.onchange = () => {
     periodBRow.hidden = !compareToggle.checked;
     applyPeriod();
@@ -374,46 +373,48 @@ function setupPeriodControls() {
 }
 
 function readSelector(suffix) {
-  const year = Number(document.getElementById("year" + suffix).value);
-  const from = Number(document.getElementById("periodFrom" + suffix).value);
-  const to = Number(document.getElementById("periodTo" + suffix).value);
-  const months = RAW.perYear[year].months.filter((m) => m >= from && m <= to);
-  const records = RAW.perYear[year].records.filter((r) => r.monthIdx >= from && r.monthIdx <= to);
-  return { year, from, to, months, records };
+  const fromKey = Number(document.getElementById("from" + suffix).value);
+  const toKey = Number(document.getElementById("to" + suffix).value);
+  const keys = RAW.timeline.filter((t) => t.key >= fromKey && t.key <= toKey).map((t) => t.key);
+  const records = RAW.allRecords.filter((r) => { const k = periodKeyOf(r); return k >= fromKey && k <= toKey; });
+  return { fromKey, toKey, keys, records };
 }
 
 function applyPeriod() {
   const A = readSelector("A");
   document.getElementById("periodInfoA").textContent =
-    A.months.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${A.months.length}`;
+    A.keys.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${A.keys.length}`;
 
   const compareEnabled = document.getElementById("compareToggle").checked;
   let B = null;
   if (compareEnabled) {
     B = readSelector("B");
     document.getElementById("periodInfoB").textContent =
-      B.months.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${B.months.length}`;
+      B.keys.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${B.keys.length}`;
   }
 
   render(A, B);
 }
 
 function render(A, B) {
-  const monthlyA = monthlyOverall(A.records, A.months);
-  const monthlyB = B ? monthlyOverall(B.records, B.months) : null;
+  const monthlyA = monthlyOverall(A.records, A.keys);
+  const monthlyB = B ? monthlyOverall(B.records, B.keys) : null;
   const labelA = periodLabelText(A);
   const labelB = B ? periodLabelText(B) : null;
 
   renderKpis(monthlyA, monthlyB, labelA, labelB);
   renderTrendCharts(monthlyA, monthlyB, labelA, labelB);
+  document.getElementById("trendPeriodLabel").textContent = B
+    ? `Период A: ${labelA} · Период B: ${labelB}`
+    : `Период: ${labelA}`;
 
   const dims = ["category", "factory", "sku"];
   if (!B) {
     const declineData = {};
-    for (const d of dims) declineData[d] = declineTable(A.records, d, A.months);
-    renderDeclineSection(declineData, { type: "single", months: A.months });
+    for (const d of dims) declineData[d] = declineTable(A.records, d, A.keys);
+    renderDeclineSection(declineData, { type: "single", keys: A.keys });
     document.getElementById("declineHint").textContent =
-      "Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно. Показаны только позиции с заметной долей в выручке периода.";
+      `Период: ${labelA}. Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно (месяц указан с годом). Показаны только позиции с заметной долей в выручке периода.`;
   } else {
     const declineData = {};
     for (const d of dims) declineData[d] = declineTableCompare(A.records, B.records, d);
@@ -423,13 +424,14 @@ function render(A, B) {
   }
 
   const abc = abcAnalysis(A.records);
-  const xyz = xyzAnalysis(A.records, A.months);
-  const hasXyz = A.months.length >= 2;
+  const xyz = xyzAnalysis(A.records, A.keys);
+  const hasXyz = A.keys.length >= 2;
   const combined = [...abc.entries()].map(([sku, a]) => {
     const x = xyz.get(sku) || { cv: NaN, xyz: null, activeCount: 0 };
     return { sku, ...a, cv: x.cv, xyz: x.xyz, activeCount: x.activeCount, cls: a.abc + (x.xyz || "") };
   });
   renderAbcXyz(combined, hasXyz);
+  document.getElementById("abcxyzPeriodLabel").textContent = `Период: ${labelA}`;
 
   document.getElementById("kpiSection").hidden = false;
   document.getElementById("trendSection").hidden = false;
@@ -456,10 +458,10 @@ function renderKpis(monthlyA, monthlyB, labelA, labelB) {
   const totalsA = periodTotals(monthlyA);
   const totalsB = periodTotals(monthlyB);
   const cards = [
-    { label: `Выручка, Период A`, value: RUB(totalsA.revenue), delta: pctDelta(totalsA.revenue, totalsB.revenue), sub: `Период B: ${RUB(totalsB.revenue)}` },
-    { label: `Себестоимость, Период A`, value: RUB(totalsA.cost), delta: pctDelta(totalsA.cost, totalsB.cost), inverse: true, sub: `Период B: ${RUB(totalsB.cost)}` },
-    { label: `Маржа, Период A`, value: RUB(totalsA.marginTg), delta: pctDelta(totalsA.marginTg, totalsB.marginTg), sub: `Период B: ${RUB(totalsB.marginTg)}` },
-    { label: `Маржа %, Период A`, value: PCT(totalsA.marginPct), delta: { pp: totalsA.marginPct - totalsB.marginPct }, sub: `Период B: ${PCT(totalsB.marginPct)}` },
+    { label: `Выручка, A (${labelA})`, value: RUB(totalsA.revenue), delta: pctDelta(totalsA.revenue, totalsB.revenue), sub: `B (${labelB}): ${RUB(totalsB.revenue)}` },
+    { label: `Себестоимость, A (${labelA})`, value: RUB(totalsA.cost), delta: pctDelta(totalsA.cost, totalsB.cost), inverse: true, sub: `B (${labelB}): ${RUB(totalsB.cost)}` },
+    { label: `Маржа, A (${labelA})`, value: RUB(totalsA.marginTg), delta: pctDelta(totalsA.marginTg, totalsB.marginTg), sub: `B (${labelB}): ${RUB(totalsB.marginTg)}` },
+    { label: `Маржа %, A (${labelA})`, value: PCT(totalsA.marginPct), delta: { pp: totalsA.marginPct - totalsB.marginPct }, sub: `B (${labelB}): ${PCT(totalsB.marginPct)}` },
   ];
   el.innerHTML = cards.map(renderKpiCard).join("");
 }
@@ -488,8 +490,11 @@ function renderTrendCharts(monthlyA, monthlyB, labelA, labelB) {
 
   const maxLen = monthlyB ? Math.max(monthlyA.length, monthlyB.length) : monthlyA.length;
   const labels = Array.from({ length: maxLen }, (_, i) => {
-    if (monthlyB) return `#${i + 1}`;
-    return monthlyA[i] ? monthlyA[i].label : "";
+    if (!monthlyB) return monthlyA[i] ? monthlyA[i].label : "";
+    const la = monthlyA[i] ? monthlyA[i].label : null;
+    const lb = monthlyB[i] ? monthlyB[i].label : null;
+    if (la && lb) return `${la} / ${lb}`;
+    return la || lb || `#${i + 1}`;
   });
 
   const revDatasets = !monthlyB
@@ -567,7 +572,7 @@ function pad(arr, len) { return Array.from({ length: len }, (_, i) => (i < arr.l
 let currentDim = "category";
 function renderDeclineSection(dataByDim, mode) {
   function draw() {
-    if (mode.type === "single") drawDeclineTable(dataByDim[currentDim], currentDim, mode.months);
+    if (mode.type === "single") drawDeclineTable(dataByDim[currentDim], currentDim, mode.keys);
     else drawDeclineTableCompare(dataByDim[currentDim], currentDim, mode.labelA, mode.labelB);
   }
   document.querySelectorAll("#declineTabs .tab").forEach((btn) => {
@@ -581,12 +586,12 @@ function renderDeclineSection(dataByDim, mode) {
   draw();
 }
 
-function drawDeclineTable(rows, dim, months) {
+function drawDeclineTable(rows, dim, keys) {
   const label = dim === "sku" ? "Номенклатура" : dim === "category" ? "Категория" : "Фабрика";
   const table = document.getElementById("declineTable");
-  const monthTh = months.map((m) => `<th>${cap(MONTH_ORDER[m])}</th>`).join("");
-  const showDelta = months.length > 1;
-  const colCount = 3 + months.length + (showDelta ? 1 : 0);
+  const monthTh = keys.map((k) => `<th>${keyToLabel(k)}</th>`).join("");
+  const showDelta = keys.length > 1;
+  const colCount = 3 + keys.length + (showDelta ? 1 : 0);
   table.querySelector("thead").innerHTML = `<tr>
     <th>${label}</th><th>Доля выручки</th><th>Маржа %, итого</th>${monthTh}${showDelta ? "<th>Δ п.п.</th>" : ""}
   </tr>`;

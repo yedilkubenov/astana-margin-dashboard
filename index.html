@@ -28,10 +28,9 @@
   <section id="periodSection" class="card" hidden>
     <div class="period-controls">
       <span class="period-label-text">Период A:</span>
-      <select id="yearA"></select>
-      <select id="periodFromA"></select>
+      <select id="fromA"></select>
       <span class="muted">—</span>
-      <select id="periodToA"></select>
+      <select id="toA"></select>
       <span class="muted" id="periodInfoA"></span>
     </div>
     <label class="compare-toggle">
@@ -39,10 +38,9 @@
     </label>
     <div class="period-controls" id="periodBRow" hidden>
       <span class="period-label-text">Период B:</span>
-      <select id="yearB"></select>
-      <select id="periodFromB"></select>
+      <select id="fromB"></select>
       <span class="muted">—</span>
-      <select id="periodToB"></select>
+      <select id="toB"></select>
       <span class="muted" id="periodInfoB"></span>
     </div>
   </section>
@@ -51,6 +49,7 @@
 
   <section id="trendSection" class="card" hidden>
     <h2>Динамика по месяцам</h2>
+    <div class="subtitle" id="trendPeriodLabel"></div>
     <div class="chart-row">
       <div class="chart-box"><canvas id="revCostChart"></canvas></div>
       <div class="chart-box"><canvas id="marginPctChart"></canvas></div>
@@ -75,6 +74,7 @@
 
   <section id="abcxyzSection" class="card" hidden>
     <h2>ABC-XYZ анализ по номенклатуре</h2>
+    <div class="subtitle" id="abcxyzPeriodLabel"></div>
     <p class="muted">
       ABC — по вкладу номенклатуры в выручку выбранного периода: сортируем по выручке по убыванию и берём нарастающий итог; пока накопленный % ≤80% от общей выручки — класс A, до 95% — B, остальное — C.<br>
       XYZ — по стабильности помесячных продаж (количество, шт.): CV, % (коэффициент вариации) = стандартное отклонение помесячных продаж ÷ среднемесячные продажи × 100. CV ≤10% — стабильный спрос (X), 10–25% — умеренные колебания (Y), &gt;25% или продажи менее чем в 3 месяцах периода — нерегулярный спрос (Z). Для XYZ нужно выбрать период не короче 2 месяцев.<br>
