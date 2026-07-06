@@ -570,6 +570,49 @@ function renderTrendCharts(monthlyA, monthlyB, labelA, labelB) {
 function pad(arr, len) { return Array.from({ length: len }, (_, i) => (i < arr.length ? arr[i] : null)); }
 
 let currentDim = "category";
+let DECLINE_SORT = { key: null, dir: -1 };
+
+function attachDeclineSortHandlers(table, redraw) {
+  table.querySelectorAll("thead th[data-key]").forEach((th) => {
+    th.onclick = () => {
+      const key = th.dataset.key;
+      if (DECLINE_SORT.key === key) DECLINE_SORT.dir *= -1; else { DECLINE_SORT.key = key; DECLINE_SORT.dir = -1; }
+      redraw();
+    };
+  });
+}
+
+function applyDeclineSort(rows, getValue) {
+  if (!DECLINE_SORT.key) return rows;
+  return [...rows].sort((a, b) => {
+    const va = getValue(a, DECLINE_SORT.key);
+    const vb = getValue(b, DECLINE_SORT.key);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (typeof va === "string") return DECLINE_SORT.dir * va.localeCompare(vb);
+    return DECLINE_SORT.dir * (va - vb);
+  });
+}
+
+function singleModeValue(r, key) {
+  if (key === "key") return r.key;
+  if (key === "share") return r.share;
+  if (key === "periodMarginPct") return r.periodMarginPct;
+  if (key === "delta") return r.delta;
+  if (key.startsWith("month:")) return r.monthlyMarginPct[parseInt(key.slice(6), 10)];
+  return null;
+}
+
+function compareModeValue(r, key) {
+  if (key === "key") return r.key;
+  if (key === "shareA") return r.shareA;
+  if (key === "marginPctA") return r.marginPctA;
+  if (key === "marginPctB") return r.marginPctB;
+  if (key === "delta") return r.delta;
+  return null;
+}
+
 function renderDeclineSection(dataByDim, mode) {
   function draw() {
     if (mode.type === "single") drawDeclineTable(dataByDim[currentDim], currentDim, mode.keys);
@@ -589,13 +632,14 @@ function renderDeclineSection(dataByDim, mode) {
 function drawDeclineTable(rows, dim, keys) {
   const label = dim === "sku" ? "Номенклатура" : dim === "category" ? "Категория" : "Фабрика";
   const table = document.getElementById("declineTable");
-  const monthTh = keys.map((k) => `<th>${keyToLabel(k)}</th>`).join("");
+  const monthTh = keys.map((k, i) => `<th data-key="month:${i}">${keyToLabel(k)}</th>`).join("");
   const showDelta = keys.length > 1;
   const colCount = 3 + keys.length + (showDelta ? 1 : 0);
   table.querySelector("thead").innerHTML = `<tr>
-    <th>${label}</th><th>Доля выручки</th><th>Маржа %, итого</th>${monthTh}${showDelta ? "<th>Δ п.п.</th>" : ""}
+    <th data-key="key">${label}</th><th data-key="share">Доля выручки</th><th data-key="periodMarginPct">Маржа %, итого</th>${monthTh}${showDelta ? `<th data-key="delta">Δ п.п.</th>` : ""}
   </tr>`;
-  const top = rows.slice(0, 30);
+  attachDeclineSortHandlers(table, () => drawDeclineTable(rows, dim, keys));
+  const top = applyDeclineSort(rows, singleModeValue).slice(0, 30);
   table.querySelector("tbody").innerHTML = top.map((r) => {
     const monthTds = r.monthlyMarginPct.map((v) => `<td class="num">${v == null ? "—" : PCT(v)}</td>`).join("");
     const deltaTd = showDelta
@@ -616,9 +660,10 @@ function drawDeclineTableCompare(rows, dim, labelA, labelB) {
   const label = dim === "sku" ? "Номенклатура" : dim === "category" ? "Категория" : "Фабрика";
   const table = document.getElementById("declineTable");
   table.querySelector("thead").innerHTML = `<tr>
-    <th>${label}</th><th>Доля выручки, A</th><th>Маржа %, A (${labelA})</th><th>Маржа %, B (${labelB})</th><th>Δ п.п. (A−B)</th>
+    <th data-key="key">${label}</th><th data-key="shareA">Доля выручки, A</th><th data-key="marginPctA">Маржа %, A (${labelA})</th><th data-key="marginPctB">Маржа %, B (${labelB})</th><th data-key="delta">Δ п.п. (A−B)</th>
   </tr>`;
-  const top = rows.slice(0, 30);
+  attachDeclineSortHandlers(table, () => drawDeclineTableCompare(rows, dim, labelA, labelB));
+  const top = applyDeclineSort(rows, compareModeValue).slice(0, 30);
   table.querySelector("tbody").innerHTML = top.map((r) => `
     <tr>
       <td>${escapeHtml(r.key)}${dim === "sku" ? `<br><span class="muted">${escapeHtml(r.category)} / ${escapeHtml(r.factory)}</span>` : ""}</td>
