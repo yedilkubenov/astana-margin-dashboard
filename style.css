@@ -87,7 +87,8 @@ main { padding: 24px 28px 60px; max-width: 1400px; margin: 0 auto; }
 .kpi-delta.up { color: var(--good); }
 .kpi-delta.down { color: var(--bad); }
 
-.period-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.period-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.period-controls:last-child { margin-bottom: 0; }
 .period-label-text { font-weight: 600; font-size: 13px; }
 .period-controls select {
   background: var(--bg);
@@ -97,6 +98,17 @@ main { padding: 24px 28px 60px; max-width: 1400px; margin: 0 auto; }
   border-radius: 6px;
   font-size: 13px;
 }
+.compare-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.compare-toggle input { cursor: pointer; }
 
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .chart-box { position: relative; height: 280px; }

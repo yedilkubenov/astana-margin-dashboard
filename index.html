@@ -27,11 +27,23 @@
 
   <section id="periodSection" class="card" hidden>
     <div class="period-controls">
-      <span class="period-label-text">Период анализа:</span>
-      <select id="periodFrom"></select>
+      <span class="period-label-text">Период A:</span>
+      <select id="yearA"></select>
+      <select id="periodFromA"></select>
       <span class="muted">—</span>
-      <select id="periodTo"></select>
-      <span class="muted" id="periodInfo"></span>
+      <select id="periodToA"></select>
+      <span class="muted" id="periodInfoA"></span>
+    </div>
+    <label class="compare-toggle">
+      <input type="checkbox" id="compareToggle"> Сравнить с другим периодом
+    </label>
+    <div class="period-controls" id="periodBRow" hidden>
+      <span class="period-label-text">Период B:</span>
+      <select id="yearB"></select>
+      <select id="periodFromB"></select>
+      <span class="muted">—</span>
+      <select id="periodToB"></select>
+      <span class="muted" id="periodInfoB"></span>
     </div>
   </section>
 
@@ -47,7 +59,7 @@
 
   <section id="declineSection" class="card" hidden>
     <h2>Где просела маржа</h2>
-    <p class="muted">Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно. Показаны только позиции с заметной долей в выручке периода.</p>
+    <p class="muted" id="declineHint">Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно. Показаны только позиции с заметной долей в выручке периода.</p>
     <div class="tabs" id="declineTabs">
       <button class="tab active" data-dim="category">Категории</button>
       <button class="tab" data-dim="factory">Фабрики</button>
@@ -65,7 +77,8 @@
     <h2>ABC-XYZ анализ по номенклатуре</h2>
     <p class="muted">
       ABC — по вкладу номенклатуры в выручку выбранного периода: сортируем по выручке по убыванию и берём нарастающий итог; пока накопленный % ≤80% от общей выручки — класс A, до 95% — B, остальное — C.<br>
-      XYZ — по стабильности помесячных продаж (количество, шт.): CV, % (коэффициент вариации) = стандартное отклонение помесячных продаж ÷ среднемесячные продажи × 100. CV ≤10% — стабильный спрос (X), 10–25% — умеренные колебания (Y), &gt;25% или продажи менее чем в 3 месяцах периода — нерегулярный спрос (Z). Для XYZ нужно выбрать период не короче 2 месяцев.
+      XYZ — по стабильности помесячных продаж (количество, шт.): CV, % (коэффициент вариации) = стандартное отклонение помесячных продаж ÷ среднемесячные продажи × 100. CV ≤10% — стабильный спрос (X), 10–25% — умеренные колебания (Y), &gt;25% или продажи менее чем в 3 месяцах периода — нерегулярный спрос (Z). Для XYZ нужно выбрать период не короче 2 месяцев.<br>
+      Классификация всегда считается по Периоду A (Период B, если включено сравнение, используется только для сравнения показателей выше, а не для ABC-XYZ).
     </p>
     <div id="matrixGrid" class="matrix-grid"></div>
     <div class="table-controls">

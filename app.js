@@ -1,6 +1,5 @@
 const SHEET_ID = "1vpfKyGL95e_c1aK919Qkj_lMxlC9fjHwayWy85CGowg";
-const GID = "246109221";
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}&t=${Date.now()}`;
+const YEAR_GIDS = { 2025: "1624628020", 2026: "246109221" };
 
 const MONTH_ORDER = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
 
@@ -9,14 +8,18 @@ const PCT = (n, d = 1) => (isFinite(n) ? n.toFixed(d).replace(".", ",") + "%" : 
 
 function toNumber(raw) {
   if (!raw) return 0;
-  const s = String(raw).replace(/ /g, "").replace(/ /g, "").replace("%", "").replace(",", ".");
+  const s = String(raw).replace(/[\s ]/g, "").replace("%", "").replace(",", ".");
   const v = parseFloat(s);
   return isFinite(v) ? v : 0;
 }
 
-async function fetchCsv() {
-  const res = await fetch(CSV_URL, { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+function csvUrlForGid(gid) {
+  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}&t=${Date.now()}`;
+}
+
+async function fetchCsv(gid) {
+  const res = await fetch(csvUrlForGid(gid), { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status} (gid ${gid})`);
   return res.text();
 }
 
@@ -42,7 +45,7 @@ function detectBlocks(rows) {
   return blocks;
 }
 
-function buildRecords(rows, blocks) {
+function buildRecords(rows, blocks, year) {
   const records = [];
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
@@ -59,6 +62,7 @@ function buildRecords(rows, blocks) {
       const marginTg = toNumber(row[c + 6]);
       if (revenue === 0 && qty === 0) continue;
       records.push({
+        year,
         month: block.month,
         monthIdx: MONTH_ORDER.indexOf(block.month),
         category, factory, sku, qty, revenue, cost, marginTg,
@@ -86,23 +90,41 @@ function aggregate(records, keyFn) {
   return map;
 }
 
+function groupBy(records, keyFn) {
+  const map = new Map();
+  for (const r of records) {
+    const key = keyFn(r);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(r);
+  }
+  return map;
+}
+
 function monthlyOverall(records, months) {
   const byMonth = aggregate(records, (r) => r.monthIdx);
   return months.map((m) => ({ monthIdx: m, label: cap(MONTH_ORDER[m]), ...(byMonth.get(m) || { qty: 0, revenue: 0, cost: 0, marginTg: 0, marginPct: 0 }) }));
 }
 
+function periodTotals(monthly) {
+  const revenue = monthly.reduce((s, m) => s + m.revenue, 0);
+  const cost = monthly.reduce((s, m) => s + m.cost, 0);
+  const marginTg = monthly.reduce((s, m) => s + m.marginTg, 0);
+  const marginPct = revenue !== 0 ? (marginTg / revenue) * 100 : 0;
+  return { revenue, cost, marginTg, marginPct };
+}
+
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+function periodLabelText(sel) {
+  const fromName = cap(MONTH_ORDER[sel.from]);
+  const toName = cap(MONTH_ORDER[sel.to]);
+  return sel.from === sel.to ? `${fromName} ${sel.year}` : `${fromName}–${toName} ${sel.year}`;
+}
+
+// ---------- single-period decline table (no comparison) ----------
 function declineTable(records, dimension, months) {
-  const keyFn = dimension === "sku"
-    ? (r) => r.sku
-    : (r) => r[dimension];
-  const grouped = new Map();
-  for (const r of records) {
-    const key = keyFn(r);
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(r);
-  }
+  const keyFn = dimension === "sku" ? (r) => r.sku : (r) => r[dimension];
+  const grouped = groupBy(records, keyFn);
   const totalRevenue = records.reduce((s, r) => s + r.revenue, 0);
   const minShare = dimension === "sku" ? 0.001 : 0.003; // 0.1% / 0.3% materiality floor
   const rows = [];
@@ -111,7 +133,6 @@ function declineTable(records, dimension, months) {
     const monthKeys = [...byMonth.keys()].sort((a, b) => a - b);
     const periodRevenue = recs.reduce((s, r) => s + r.revenue, 0);
     if (totalRevenue > 0 && periodRevenue / totalRevenue < minShare) continue;
-    const periodCost = recs.reduce((s, r) => s + r.cost, 0);
     const periodMarginTg = recs.reduce((s, r) => s + r.marginTg, 0);
     const periodMarginPct = periodRevenue !== 0 ? (periodMarginTg / periodRevenue) * 100 : 0;
     let delta = null;
@@ -126,8 +147,6 @@ function declineTable(records, dimension, months) {
       category: recs[0].category,
       factory: recs[0].factory,
       periodRevenue,
-      periodCost,
-      periodMarginTg,
       share: totalRevenue ? (periodRevenue / totalRevenue) * 100 : 0,
       periodMarginPct,
       monthlyMarginPct,
@@ -139,6 +158,49 @@ function declineTable(records, dimension, months) {
     if (a.delta !== null) return -1;
     if (b.delta !== null) return 1;
     return a.periodMarginPct - b.periodMarginPct;
+  });
+  return rows;
+}
+
+// ---------- period A vs period B decline/comparison table ----------
+function declineTableCompare(recordsA, recordsB, dimension) {
+  const keyFn = dimension === "sku" ? (r) => r.sku : (r) => r[dimension];
+  const groupA = groupBy(recordsA, keyFn);
+  const groupB = groupBy(recordsB, keyFn);
+  const totalA = recordsA.reduce((s, r) => s + r.revenue, 0);
+  const totalB = recordsB.reduce((s, r) => s + r.revenue, 0);
+  const totalCombined = totalA + totalB;
+  const minShare = dimension === "sku" ? 0.001 : 0.003;
+  const keys = new Set([...groupA.keys(), ...groupB.keys()]);
+  const rows = [];
+  for (const key of keys) {
+    const recsA = groupA.get(key) || [];
+    const recsB = groupB.get(key) || [];
+    const revA = recsA.reduce((s, r) => s + r.revenue, 0);
+    const revB = recsB.reduce((s, r) => s + r.revenue, 0);
+    if (totalCombined > 0 && (revA + revB) / totalCombined < minShare) continue;
+    const mgA = recsA.reduce((s, r) => s + r.marginTg, 0);
+    const mgB = recsB.reduce((s, r) => s + r.marginTg, 0);
+    const marginPctA = revA !== 0 ? (mgA / revA) * 100 : null;
+    const marginPctB = revB !== 0 ? (mgB / revB) * 100 : null;
+    const delta = marginPctA !== null && marginPctB !== null ? marginPctA - marginPctB : null;
+    const sample = recsA[0] || recsB[0];
+    rows.push({
+      key,
+      category: sample.category,
+      factory: sample.factory,
+      revA,
+      shareA: totalA ? (revA / totalA) * 100 : 0,
+      marginPctA,
+      marginPctB,
+      delta,
+    });
+  }
+  rows.sort((a, b) => {
+    if (a.delta !== null && b.delta !== null) return a.delta - b.delta;
+    if (a.delta !== null) return -1;
+    if (b.delta !== null) return 1;
+    return b.revA - a.revA;
   });
   return rows;
 }
@@ -202,27 +264,37 @@ const CELL_HINTS = {
 };
 
 let STATE = { rows: [], sortKey: "revenue", sortDir: -1, page: 1, pageSize: 50, search: "", classFilter: "" };
-let RAW = { records: [], months: [] };
+let RAW = { perYear: {}, years: [] };
 
 async function main() {
   try {
-    const text = await fetchCsv();
-    const rows = parseCsv(text);
-    const blocks = detectBlocks(rows);
-    if (blocks.length === 0) throw new Error("Не удалось найти месячные блоки в таблице — проверьте структуру листа.");
-    const records = buildRecords(rows, blocks);
-    const months = activeMonths(records);
-    if (months.length === 0) throw new Error("В таблице пока нет данных о продажах ни за один месяц.");
-    RAW = { records, months };
+    const yearEntries = Object.entries(YEAR_GIDS);
+    const fetched = await Promise.all(yearEntries.map(async ([year, gid]) => {
+      const text = await fetchCsv(gid);
+      const rows = parseCsv(text);
+      const blocks = detectBlocks(rows);
+      if (blocks.length === 0) return null;
+      const records = buildRecords(rows, blocks, Number(year));
+      const months = activeMonths(records);
+      if (months.length === 0) return null;
+      return [Number(year), { records, months }];
+    }));
+
+    const perYear = {};
+    for (const entry of fetched) if (entry) perYear[entry[0]] = entry[1];
+    const years = Object.keys(perYear).map(Number).sort((a, b) => a - b);
+    if (years.length === 0) throw new Error("В таблице пока нет данных о продажах ни за один год.");
+    RAW = { perYear, years };
 
     document.getElementById("loadingState").hidden = true;
-    const startLabel = cap(MONTH_ORDER[months[0]]);
-    const endLabel = cap(MONTH_ORDER[months[months.length - 1]]);
-    document.getElementById("periodLabel").textContent =
-      `Данные в таблице: ${startLabel} – ${endLabel} 2026 · ${blocks.length} мес. в таблице, ${months.length} с данными`;
+    const coverage = years.map((y) => {
+      const m = perYear[y].months;
+      return `${y}: ${cap(MONTH_ORDER[m[0]])}–${cap(MONTH_ORDER[m[m.length - 1]])}`;
+    }).join(" · ");
+    document.getElementById("periodLabel").textContent = `Данные в таблице: ${coverage}`;
     document.getElementById("periodSection").hidden = false;
 
-    setupPeriodControls(months);
+    setupPeriodControls();
     applyPeriod();
     document.getElementById("updatedAt").textContent = "Обновлено: " + new Date().toLocaleString("ru-RU");
   } catch (e) {
@@ -234,49 +306,125 @@ async function main() {
   }
 }
 
-function setupPeriodControls(months) {
-  const fromSel = document.getElementById("periodFrom");
-  const toSel = document.getElementById("periodTo");
+function populateYearMonthSelects(yearSel, fromSel, toSel, defaultYear) {
+  yearSel.innerHTML = RAW.years.map((y) => `<option value="${y}">${y}</option>`).join("");
+  yearSel.value = defaultYear;
+  fillMonthOptions(yearSel, fromSel, toSel, true);
+}
+
+function fillMonthOptions(yearSel, fromSel, toSel, selectFullRange) {
+  const year = Number(yearSel.value);
+  const months = RAW.perYear[year].months;
   const opts = months.map((m) => `<option value="${m}">${cap(MONTH_ORDER[m])}</option>`).join("");
   fromSel.innerHTML = opts;
   toSel.innerHTML = opts;
-  fromSel.value = months[0];
-  toSel.value = months[months.length - 1];
-  fromSel.onchange = () => {
-    if (Number(fromSel.value) > Number(toSel.value)) toSel.value = fromSel.value;
+  if (selectFullRange) {
+    fromSel.value = months[0];
+    toSel.value = months[months.length - 1];
+  } else {
+    if (![...fromSel.options].some((o) => o.value === fromSel.value)) fromSel.value = months[0];
+    if (![...toSel.options].some((o) => o.value === toSel.value)) toSel.value = months[months.length - 1];
+  }
+}
+
+function setupPeriodControls() {
+  const yearA = document.getElementById("yearA");
+  const fromA = document.getElementById("periodFromA");
+  const toA = document.getElementById("periodToA");
+  const yearB = document.getElementById("yearB");
+  const fromB = document.getElementById("periodFromB");
+  const toB = document.getElementById("periodToB");
+  const compareToggle = document.getElementById("compareToggle");
+  const periodBRow = document.getElementById("periodBRow");
+
+  const latestYear = RAW.years[RAW.years.length - 1];
+  const prevYear = RAW.years.length > 1 ? RAW.years[RAW.years.length - 2] : latestYear;
+
+  populateYearMonthSelects(yearA, fromA, toA, latestYear);
+  populateYearMonthSelects(yearB, fromB, toB, prevYear);
+  // Default Period B to the same month range as Period A (like-for-like YoY), when available.
+  const bMonths = RAW.perYear[prevYear].months;
+  if (bMonths.includes(Number(fromA.value))) fromB.value = fromA.value;
+  if (bMonths.includes(Number(toA.value))) toB.value = toA.value;
+
+  yearA.onchange = () => { fillMonthOptions(yearA, fromA, toA, true); applyPeriod(); };
+  fromA.onchange = () => {
+    if (Number(fromA.value) > Number(toA.value)) toA.value = fromA.value;
     applyPeriod();
   };
-  toSel.onchange = () => {
-    if (Number(toSel.value) < Number(fromSel.value)) fromSel.value = toSel.value;
+  toA.onchange = () => {
+    if (Number(toA.value) < Number(fromA.value)) fromA.value = toA.value;
     applyPeriod();
   };
+
+  yearB.onchange = () => { fillMonthOptions(yearB, fromB, toB, true); applyPeriod(); };
+  fromB.onchange = () => {
+    if (Number(fromB.value) > Number(toB.value)) toB.value = fromB.value;
+    applyPeriod();
+  };
+  toB.onchange = () => {
+    if (Number(toB.value) < Number(fromB.value)) fromB.value = toB.value;
+    applyPeriod();
+  };
+
+  compareToggle.onchange = () => {
+    periodBRow.hidden = !compareToggle.checked;
+    applyPeriod();
+  };
+}
+
+function readSelector(suffix) {
+  const year = Number(document.getElementById("year" + suffix).value);
+  const from = Number(document.getElementById("periodFrom" + suffix).value);
+  const to = Number(document.getElementById("periodTo" + suffix).value);
+  const months = RAW.perYear[year].months.filter((m) => m >= from && m <= to);
+  const records = RAW.perYear[year].records.filter((r) => r.monthIdx >= from && r.monthIdx <= to);
+  return { year, from, to, months, records };
 }
 
 function applyPeriod() {
-  const from = Number(document.getElementById("periodFrom").value);
-  const to = Number(document.getElementById("periodTo").value);
-  const months = RAW.months.filter((m) => m >= from && m <= to);
-  const records = RAW.records.filter((r) => r.monthIdx >= from && r.monthIdx <= to);
-  document.getElementById("periodInfo").textContent =
-    months.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${months.length}`;
-  render(records, months);
+  const A = readSelector("A");
+  document.getElementById("periodInfoA").textContent =
+    A.months.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${A.months.length}`;
+
+  const compareEnabled = document.getElementById("compareToggle").checked;
+  let B = null;
+  if (compareEnabled) {
+    B = readSelector("B");
+    document.getElementById("periodInfoB").textContent =
+      B.months.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${B.months.length}`;
+  }
+
+  render(A, B);
 }
 
-function render(records, months) {
-  const monthly = monthlyOverall(records, months);
-  renderKpis(monthly);
-  renderTrendCharts(monthly);
+function render(A, B) {
+  const monthlyA = monthlyOverall(A.records, A.months);
+  const monthlyB = B ? monthlyOverall(B.records, B.months) : null;
+  const labelA = periodLabelText(A);
+  const labelB = B ? periodLabelText(B) : null;
 
-  const declineData = {
-    category: declineTable(records, "category", months),
-    factory: declineTable(records, "factory", months),
-    sku: declineTable(records, "sku", months),
-  };
-  renderDeclineSection(declineData, months);
+  renderKpis(monthlyA, monthlyB, labelA, labelB);
+  renderTrendCharts(monthlyA, monthlyB, labelA, labelB);
 
-  const abc = abcAnalysis(records);
-  const xyz = xyzAnalysis(records, months);
-  const hasXyz = months.length >= 2;
+  const dims = ["category", "factory", "sku"];
+  if (!B) {
+    const declineData = {};
+    for (const d of dims) declineData[d] = declineTable(A.records, d, A.months);
+    renderDeclineSection(declineData, { type: "single", months: A.months });
+    document.getElementById("declineHint").textContent =
+      "Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно. Показаны только позиции с заметной долей в выручке периода.";
+  } else {
+    const declineData = {};
+    for (const d of dims) declineData[d] = declineTableCompare(A.records, B.records, d);
+    renderDeclineSection(declineData, { type: "compare", labelA, labelB });
+    document.getElementById("declineHint").textContent =
+      `Сравнение маржи между Периодом A (${labelA}) и Периодом B (${labelB}). Доля выручки — в рамках Периода A. Показаны только позиции с заметной долей в объединённой выручке обоих периодов.`;
+  }
+
+  const abc = abcAnalysis(A.records);
+  const xyz = xyzAnalysis(A.records, A.months);
+  const hasXyz = A.months.length >= 2;
   const combined = [...abc.entries()].map(([sku, a]) => {
     const x = xyz.get(sku) || { cv: NaN, xyz: null, activeCount: 0 };
     return { sku, ...a, cv: x.cv, xyz: x.xyz, activeCount: x.activeCount, cls: a.abc + (x.xyz || "") };
@@ -289,49 +437,77 @@ function render(records, months) {
   document.getElementById("abcxyzSection").hidden = false;
 }
 
-function renderKpis(monthly) {
-  const last = monthly[monthly.length - 1];
-  const prev = monthly.length > 1 ? monthly[monthly.length - 2] : null;
-  const cards = [
-    { label: `Выручка, ${last.label}`, value: RUB(last.revenue), delta: prev ? pctDelta(last.revenue, prev.revenue) : null },
-    { label: `Себестоимость, ${last.label}`, value: RUB(last.cost), delta: prev ? pctDelta(last.cost, prev.cost) : null, inverse: true },
-    { label: `Маржа, ${last.label}`, value: RUB(last.marginTg), delta: prev ? pctDelta(last.marginTg, prev.marginTg) : null },
-    { label: `Маржа %, ${last.label}`, value: PCT(last.marginPct), delta: prev ? { pp: last.marginPct - prev.marginPct } : null },
-  ];
+function renderKpis(monthlyA, monthlyB, labelA, labelB) {
   const el = document.getElementById("kpiSection");
-  el.innerHTML = cards.map((c) => {
-    let deltaHtml = "";
-    if (c.delta !== null && c.delta !== undefined) {
-      if (typeof c.delta === "object") {
-        const up = c.delta.pp >= 0;
-        deltaHtml = `<div class="kpi-delta ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${c.delta.pp >= 0 ? "+" : ""}${c.delta.pp.toFixed(1).replace(".", ",")} п.п. к пред. мес.</div>`;
-      } else {
-        const goodDir = c.inverse ? c.delta < 0 : c.delta >= 0;
-        deltaHtml = `<div class="kpi-delta ${goodDir ? "up" : "down"}">${c.delta >= 0 ? "▲" : "▼"} ${PCT(Math.abs(c.delta))} к пред. мес.</div>`;
-      }
+
+  if (!monthlyB) {
+    const last = monthlyA[monthlyA.length - 1];
+    const prev = monthlyA.length > 1 ? monthlyA[monthlyA.length - 2] : null;
+    const cards = [
+      { label: `Выручка, ${last.label}`, value: RUB(last.revenue), delta: prev ? pctDelta(last.revenue, prev.revenue) : null },
+      { label: `Себестоимость, ${last.label}`, value: RUB(last.cost), delta: prev ? pctDelta(last.cost, prev.cost) : null, inverse: true },
+      { label: `Маржа, ${last.label}`, value: RUB(last.marginTg), delta: prev ? pctDelta(last.marginTg, prev.marginTg) : null },
+      { label: `Маржа %, ${last.label}`, value: PCT(last.marginPct), delta: prev ? { pp: last.marginPct - prev.marginPct } : null },
+    ];
+    el.innerHTML = cards.map(renderKpiCard).join("");
+    return;
+  }
+
+  const totalsA = periodTotals(monthlyA);
+  const totalsB = periodTotals(monthlyB);
+  const cards = [
+    { label: `Выручка, Период A`, value: RUB(totalsA.revenue), delta: pctDelta(totalsA.revenue, totalsB.revenue), sub: `Период B: ${RUB(totalsB.revenue)}` },
+    { label: `Себестоимость, Период A`, value: RUB(totalsA.cost), delta: pctDelta(totalsA.cost, totalsB.cost), inverse: true, sub: `Период B: ${RUB(totalsB.cost)}` },
+    { label: `Маржа, Период A`, value: RUB(totalsA.marginTg), delta: pctDelta(totalsA.marginTg, totalsB.marginTg), sub: `Период B: ${RUB(totalsB.marginTg)}` },
+    { label: `Маржа %, Период A`, value: PCT(totalsA.marginPct), delta: { pp: totalsA.marginPct - totalsB.marginPct }, sub: `Период B: ${PCT(totalsB.marginPct)}` },
+  ];
+  el.innerHTML = cards.map(renderKpiCard).join("");
+}
+
+function renderKpiCard(c) {
+  let deltaHtml = "";
+  if (c.delta !== null && c.delta !== undefined) {
+    if (typeof c.delta === "object") {
+      const up = c.delta.pp >= 0;
+      deltaHtml = `<div class="kpi-delta ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${c.delta.pp >= 0 ? "+" : ""}${c.delta.pp.toFixed(1).replace(".", ",")} п.п.</div>`;
+    } else {
+      const goodDir = c.inverse ? c.delta < 0 : c.delta >= 0;
+      deltaHtml = `<div class="kpi-delta ${goodDir ? "up" : "down"}">${c.delta >= 0 ? "▲" : "▼"} ${PCT(Math.abs(c.delta))}</div>`;
     }
-    return `<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value">${c.value}</div>${deltaHtml}</div>`;
-  }).join("");
+  }
+  const subHtml = c.sub ? `<div class="muted" style="font-size:12px;margin-top:4px;">${c.sub}</div>` : "";
+  return `<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value">${c.value}</div>${deltaHtml}${subHtml}</div>`;
 }
 
 function pctDelta(a, b) { return b !== 0 ? ((a - b) / Math.abs(b)) * 100 : 0; }
 
 let charts = {};
-function renderTrendCharts(monthly) {
-  const labels = monthly.map((m) => m.label);
+function renderTrendCharts(monthlyA, monthlyB, labelA, labelB) {
   if (charts.revCost) charts.revCost.destroy();
   if (charts.marginPct) charts.marginPct.destroy();
 
+  const maxLen = monthlyB ? Math.max(monthlyA.length, monthlyB.length) : monthlyA.length;
+  const labels = Array.from({ length: maxLen }, (_, i) => {
+    if (monthlyB) return `#${i + 1}`;
+    return monthlyA[i] ? monthlyA[i].label : "";
+  });
+
+  const revDatasets = !monthlyB
+    ? [
+        { label: "Выручка", data: monthlyA.map((m) => m.revenue), backgroundColor: "#4da3ff" },
+        { label: "Себестоимость", data: monthlyA.map((m) => m.cost), backgroundColor: "#f5b84d" },
+        { label: "Маржа, тг", data: monthlyA.map((m) => m.marginTg), backgroundColor: "#3ecf8e" },
+      ]
+    : [
+        { label: `Выручка (A: ${labelA})`, data: pad(monthlyA.map((m) => m.revenue), maxLen), backgroundColor: "#4da3ff" },
+        { label: `Выручка (B: ${labelB})`, data: pad(monthlyB.map((m) => m.revenue), maxLen), backgroundColor: "#1c5c94" },
+        { label: `Маржа, тг (A: ${labelA})`, data: pad(monthlyA.map((m) => m.marginTg), maxLen), backgroundColor: "#3ecf8e" },
+        { label: `Маржа, тг (B: ${labelB})`, data: pad(monthlyB.map((m) => m.marginTg), maxLen), backgroundColor: "#1f7a52" },
+      ];
+
   charts.revCost = new Chart(document.getElementById("revCostChart"), {
     type: "bar",
-    data: {
-      labels,
-      datasets: [
-        { label: "Выручка", data: monthly.map((m) => m.revenue), backgroundColor: "#4da3ff" },
-        { label: "Себестоимость", data: monthly.map((m) => m.cost), backgroundColor: "#f5b84d" },
-        { label: "Маржа, тг", data: monthly.map((m) => m.marginTg), backgroundColor: "#3ecf8e" },
-      ],
-    },
+    data: { labels, datasets: revDatasets },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#e7edf2" } } },
       scales: { x: { ticks: { color: "#8a97a3" } }, y: { ticks: { color: "#8a97a3" } } } },
   });
@@ -370,26 +546,39 @@ function renderTrendCharts(monthly) {
     },
   };
 
+  const marginPctDatasets = !monthlyB
+    ? [{ label: "Маржа, %", data: monthlyA.map((m) => m.marginPct), borderColor: "#4da3ff", backgroundColor: "rgba(77,163,255,0.15)", fill: true, tension: 0.3 }]
+    : [
+        { label: `Маржа, % (A: ${labelA})`, data: pad(monthlyA.map((m) => m.marginPct), maxLen), borderColor: "#4da3ff", backgroundColor: "rgba(77,163,255,0.1)", fill: true, tension: 0.3 },
+        { label: `Маржа, % (B: ${labelB})`, data: pad(monthlyB.map((m) => m.marginPct), maxLen), borderColor: "#f5b84d", backgroundColor: "rgba(245,184,77,0.1)", fill: true, tension: 0.3 },
+      ];
+
   charts.marginPct = new Chart(document.getElementById("marginPctChart"), {
     type: "line",
-    data: { labels, datasets: [{ label: "Маржа, %", data: monthly.map((m) => m.marginPct), borderColor: "#4da3ff", backgroundColor: "rgba(77,163,255,0.15)", fill: true, tension: 0.3 }] },
+    data: { labels, datasets: marginPctDatasets },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#e7edf2" } } },
       scales: { x: { ticks: { color: "#8a97a3" } }, y: { ticks: { color: "#8a97a3" } } } },
     plugins: [crosshairPlugin],
   });
 }
 
+function pad(arr, len) { return Array.from({ length: len }, (_, i) => (i < arr.length ? arr[i] : null)); }
+
 let currentDim = "category";
-function renderDeclineSection(data, months) {
+function renderDeclineSection(dataByDim, mode) {
+  function draw() {
+    if (mode.type === "single") drawDeclineTable(dataByDim[currentDim], currentDim, mode.months);
+    else drawDeclineTableCompare(dataByDim[currentDim], currentDim, mode.labelA, mode.labelB);
+  }
   document.querySelectorAll("#declineTabs .tab").forEach((btn) => {
     btn.onclick = () => {
       document.querySelectorAll("#declineTabs .tab").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentDim = btn.dataset.dim;
-      drawDeclineTable(data[currentDim], currentDim, months);
+      draw();
     };
   });
-  drawDeclineTable(data[currentDim], currentDim, months);
+  draw();
 }
 
 function drawDeclineTable(rows, dim, months) {
@@ -416,6 +605,23 @@ function drawDeclineTable(rows, dim, months) {
       ${deltaTd}
     </tr>`;
   }).join("") || `<tr><td colspan="${colCount}" class="muted">Нет данных, удовлетворяющих порогу значимости.</td></tr>`;
+}
+
+function drawDeclineTableCompare(rows, dim, labelA, labelB) {
+  const label = dim === "sku" ? "Номенклатура" : dim === "category" ? "Категория" : "Фабрика";
+  const table = document.getElementById("declineTable");
+  table.querySelector("thead").innerHTML = `<tr>
+    <th>${label}</th><th>Доля выручки, A</th><th>Маржа %, A (${labelA})</th><th>Маржа %, B (${labelB})</th><th>Δ п.п. (A−B)</th>
+  </tr>`;
+  const top = rows.slice(0, 30);
+  table.querySelector("tbody").innerHTML = top.map((r) => `
+    <tr>
+      <td>${escapeHtml(r.key)}${dim === "sku" ? `<br><span class="muted">${escapeHtml(r.category)} / ${escapeHtml(r.factory)}</span>` : ""}</td>
+      <td class="num">${PCT(r.shareA)}</td>
+      <td class="num">${r.marginPctA == null ? "—" : PCT(r.marginPctA)}</td>
+      <td class="num">${r.marginPctB == null ? "—" : PCT(r.marginPctB)}</td>
+      <td class="num delta ${r.delta == null ? "" : r.delta < 0 ? "down" : "up"}">${r.delta == null ? "—" : (r.delta >= 0 ? "+" : "") + r.delta.toFixed(1).replace(".", ",")}</td>
+    </tr>`).join("") || `<tr><td colspan="5" class="muted">Нет данных, удовлетворяющих порогу значимости.</td></tr>`;
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
