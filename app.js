@@ -271,8 +271,8 @@ function renderKpis(monthly) {
   const el = document.getElementById("kpiSection");
   el.innerHTML = cards.map((c) => {
     let deltaHtml = "";
-    if (c.delta) {
-      if ("pp" in c.delta) {
+    if (c.delta !== null && c.delta !== undefined) {
+      if (typeof c.delta === "object") {
         const up = c.delta.pp >= 0;
         deltaHtml = `<div class="kpi-delta ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${c.delta.pp >= 0 ? "+" : ""}${c.delta.pp.toFixed(1).replace(".", ",")} п.п. к пред. мес.</div>`;
       } else {
