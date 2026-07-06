@@ -11,13 +11,36 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+[data-theme="light"] {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --border: #dde3ea;
+  --text: #1b232c;
+  --muted: #5b6672;
+  --accent: #2f6fd6;
+  --good: #1f9d64;
+  --bad: #d43f3f;
+  --warn: #b8791a;
+}
+
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  transition: background 0.15s ease, color 0.15s ease;
 }
+
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 16px;
+  line-height: 1;
+}
+.theme-toggle:hover { border-color: var(--accent); }
 
 .topbar {
   display: flex;

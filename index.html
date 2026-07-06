@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Астана 2025-2026 — Маржинальность и ABC-XYZ</title>
 <meta name="robots" content="noindex, nofollow">
+<script>
+  (function () {
+    var saved = localStorage.getItem("theme");
+    if (saved === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -17,6 +23,7 @@
   </div>
   <div class="topbar-actions">
     <span id="updatedAt" class="muted"></span>
+    <button id="themeToggle" class="theme-toggle" title="Переключить тему">🌙</button>
     <button id="refreshBtn">Обновить</button>
   </div>
 </header>

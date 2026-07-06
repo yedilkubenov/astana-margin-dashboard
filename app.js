@@ -483,10 +483,19 @@ function renderKpiCard(c) {
 
 function pctDelta(a, b) { return b !== 0 ? ((a - b) / Math.abs(b)) * 100 : 0; }
 
+function themeColors() {
+  const styles = getComputedStyle(document.documentElement);
+  return {
+    text: styles.getPropertyValue("--text").trim() || "#e7edf2",
+    muted: styles.getPropertyValue("--muted").trim() || "#8a97a3",
+  };
+}
+
 let charts = {};
 function renderTrendCharts(monthlyA, monthlyB, labelA, labelB) {
   if (charts.revCost) charts.revCost.destroy();
   if (charts.marginPct) charts.marginPct.destroy();
+  const theme = themeColors();
 
   const maxLen = monthlyB ? Math.max(monthlyA.length, monthlyB.length) : monthlyA.length;
   const labels = Array.from({ length: maxLen }, (_, i) => {
@@ -513,8 +522,8 @@ function renderTrendCharts(monthlyA, monthlyB, labelA, labelB) {
   charts.revCost = new Chart(document.getElementById("revCostChart"), {
     type: "bar",
     data: { labels, datasets: revDatasets },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#e7edf2" } } },
-      scales: { x: { ticks: { color: "#8a97a3" } }, y: { ticks: { color: "#8a97a3" } } } },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: theme.text } } },
+      scales: { x: { ticks: { color: theme.muted } }, y: { ticks: { color: theme.muted } } } },
   });
 
   const crosshairPlugin = {
@@ -539,12 +548,12 @@ function renderTrendCharts(monthlyA, monthlyB, labelA, labelB) {
       ctx.setLineDash([4, 4]);
       ctx.moveTo(chartArea.left, y);
       ctx.lineTo(chartArea.right, y);
-      ctx.strokeStyle = "rgba(231,237,242,0.6)";
+      ctx.strokeStyle = theme.muted;
       ctx.lineWidth = 1;
       ctx.stroke();
       const value = scales.y.getValueForPixel(y);
       ctx.setLineDash([]);
-      ctx.fillStyle = "#e7edf2";
+      ctx.fillStyle = theme.text;
       ctx.font = "11px -apple-system, sans-serif";
       ctx.fillText(PCT(value), chartArea.left + 6, y - 4);
       ctx.restore();
@@ -561,8 +570,8 @@ function renderTrendCharts(monthlyA, monthlyB, labelA, labelB) {
   charts.marginPct = new Chart(document.getElementById("marginPctChart"), {
     type: "line",
     data: { labels, datasets: marginPctDatasets },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#e7edf2" } } },
-      scales: { x: { ticks: { color: "#8a97a3" } }, y: { ticks: { color: "#8a97a3" } } } },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: theme.text } } },
+      scales: { x: { ticks: { color: theme.muted } }, y: { ticks: { color: theme.muted } } } },
     plugins: [crosshairPlugin],
   });
 }
@@ -770,4 +779,23 @@ document.getElementById("refreshBtn").addEventListener("click", () => {
   main();
 });
 
+function setThemeButtonIcon() {
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  document.getElementById("themeToggle").textContent = isLight ? "☀️" : "🌙";
+}
+
+document.getElementById("themeToggle").addEventListener("click", () => {
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  if (isLight) {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.setItem("theme", "dark");
+  } else {
+    document.documentElement.setAttribute("data-theme", "light");
+    localStorage.setItem("theme", "light");
+  }
+  setThemeButtonIcon();
+  if (RAW.timeline.length > 0) applyPeriod();
+});
+
+setThemeButtonIcon();
 main();
