@@ -172,9 +172,7 @@ function declineTable(records, dimension, keys) {
 }
 
 // ---------- period A vs period B decline/comparison table ----------
-// aIsLater tells us which side is chronologically more recent, so delta reflects
-// real growth/decline (later - earlier) instead of always being "A minus B".
-function declineTableCompare(recordsA, recordsB, dimension, aIsLater) {
+function declineTableCompare(recordsA, recordsB, dimension) {
   const keyFn = dimension === "sku" ? (r) => r.sku : (r) => r[dimension];
   const groupA = groupBy(recordsA, keyFn);
   const groupB = groupBy(recordsB, keyFn);
@@ -194,9 +192,7 @@ function declineTableCompare(recordsA, recordsB, dimension, aIsLater) {
     const mgB = recsB.reduce((s, r) => s + r.marginTg, 0);
     const marginPctA = revA !== 0 ? (mgA / revA) * 100 : null;
     const marginPctB = revB !== 0 ? (mgB / revB) * 100 : null;
-    const delta = marginPctA !== null && marginPctB !== null
-      ? (aIsLater ? marginPctA - marginPctB : marginPctB - marginPctA)
-      : null;
+    const delta = marginPctA !== null && marginPctB !== null ? marginPctB - marginPctA : null;
     const sample = recsA[0] || recsB[0];
     rows.push({
       key,
@@ -604,10 +600,10 @@ function render(A, B) {
       `Период: ${labelA}. Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно (месяц указан с годом). Показаны только позиции с заметной долей в выручке периода.`;
   } else {
     const declineData = {};
-    for (const d of dims) declineData[d] = declineTableCompare(A.records, B.records, d, aIsLater);
-    renderDeclineSection(declineData, { type: "compare", labelA, labelB, aIsLater });
+    for (const d of dims) declineData[d] = declineTableCompare(A.records, B.records, d);
+    renderDeclineSection(declineData, { type: "compare", labelA, labelB });
     document.getElementById("declineHint").textContent =
-      `Сравнение маржи между Периодом A (${labelA}) и Периодом B (${labelB}). Δ — рост/падение маржи от более раннего периода к более позднему. Доля выручки — в рамках Периода A. Показаны только позиции с заметной долей в объединённой выручке обоих периодов.`;
+      `Сравнение маржи между Периодом A (${labelA}) и Периодом B (${labelB}). Δ = маржа Периода B минус маржа Периода A. Доля выручки — в рамках Периода A. Показаны только позиции с заметной долей в объединённой выручке обоих периодов.`;
   }
 
   document.getElementById("kpiSection").hidden = false;
@@ -826,7 +822,7 @@ function compareModeValue(r, key) {
 function renderDeclineSection(dataByDim, mode) {
   function draw() {
     if (mode.type === "single") drawDeclineTable(dataByDim[currentDim], currentDim, mode.keys);
-    else drawDeclineTableCompare(dataByDim[currentDim], currentDim, mode.labelA, mode.labelB, mode.aIsLater);
+    else drawDeclineTableCompare(dataByDim[currentDim], currentDim, mode.labelA, mode.labelB);
   }
   document.querySelectorAll("#declineTabs .tab").forEach((btn) => {
     btn.onclick = () => {
@@ -866,14 +862,13 @@ function drawDeclineTable(rows, dim, keys) {
   }).join("") || `<tr><td colspan="${colCount}" class="muted">Нет данных, удовлетворяющих порогу значимости.</td></tr>`;
 }
 
-function drawDeclineTableCompare(rows, dim, labelA, labelB, aIsLater) {
+function drawDeclineTableCompare(rows, dim, labelA, labelB) {
   const label = dim === "sku" ? "Номенклатура" : dim === "category" ? "Категория" : "Фабрика";
   const table = document.getElementById("declineTable");
-  const deltaHeader = aIsLater ? "Δ п.п. (A−B, рост=позже)" : "Δ п.п. (B−A, рост=позже)";
   table.querySelector("thead").innerHTML = `<tr>
-    <th data-key="key">${label}</th><th data-key="shareA">Доля выручки, A</th><th data-key="marginPctA">Маржа %, A (${labelA})</th><th data-key="marginPctB">Маржа %, B (${labelB})</th><th data-key="delta">${deltaHeader}</th>
+    <th data-key="key">${label}</th><th data-key="shareA">Доля выручки, A</th><th data-key="marginPctA">Маржа %, A (${labelA})</th><th data-key="marginPctB">Маржа %, B (${labelB})</th><th data-key="delta">Δ п.п. (B−A)</th>
   </tr>`;
-  attachDeclineSortHandlers(table, () => drawDeclineTableCompare(rows, dim, labelA, labelB, aIsLater));
+  attachDeclineSortHandlers(table, () => drawDeclineTableCompare(rows, dim, labelA, labelB));
   const top = applyDeclineSort(rows, compareModeValue).slice(0, 30);
   table.querySelector("tbody").innerHTML = top.map((r) => `
     <tr>
