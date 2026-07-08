@@ -339,39 +339,151 @@ function computePreset(name) {
   return { from: clamp(from, minKey, maxKey), to: clamp(to, minKey, maxKey) };
 }
 
+const MONTH_ABBR = ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"];
+let ALL_MINI_PICKERS = [];
+
+function closeAllMiniPickers(exceptContainer) {
+  ALL_MINI_PICKERS.forEach(({ container, dropdown }) => {
+    if (container !== exceptContainer) dropdown.hidden = true;
+  });
+}
+
+// A mini calendar: header shows the year with « » navigation, grid shows the 12 months.
+// Data is monthly (not daily), so this replaces a day-grid entirely rather than nesting under one.
+function createMonthPicker(container, initialKey, isEndField, onChange) {
+  container.innerHTML = `
+    <button type="button" class="mini-picker-field">
+      <span class="mini-picker-icon">📅</span>
+      <span class="mini-picker-text"></span>
+    </button>
+    <div class="mini-picker-dropdown" hidden>
+      <div class="mini-picker-header">
+        <button type="button" class="mini-nav" data-dir="-1">«</button>
+        <span class="mini-picker-year"></span>
+        <button type="button" class="mini-nav" data-dir="1">»</button>
+      </div>
+      <div class="mini-picker-grid"></div>
+    </div>
+  `;
+  const field = container.querySelector(".mini-picker-field");
+  const text = container.querySelector(".mini-picker-text");
+  const dropdown = container.querySelector(".mini-picker-dropdown");
+  const yearLabel = container.querySelector(".mini-picker-year");
+  const grid = container.querySelector(".mini-picker-grid");
+
+  const minKey = RAW.timeline[0].key;
+  const maxKey = RAW.timeline[RAW.timeline.length - 1].key;
+  const minYear = Math.floor(minKey / 12);
+  const maxYear = Math.floor(maxKey / 12);
+
+  let value = initialKey;
+  let viewYear = Math.floor(initialKey / 12);
+
+  function formatDate(key) {
+    const month = ((key % 12) + 12) % 12;
+    const year = Math.round((key - month) / 12);
+    const day = isEndField ? new Date(year, month + 1, 0).getDate() : 1;
+    return `${String(day).padStart(2, "0")}.${String(month + 1).padStart(2, "0")}.${year}`;
+  }
+
+  function renderGrid() {
+    yearLabel.textContent = viewYear;
+    grid.innerHTML = MONTH_ABBR.map((label, m) => {
+      const key = viewYear * 12 + m;
+      const disabled = key < minKey || key > maxKey;
+      const selected = key === value;
+      return `<button type="button" class="mini-month-btn${selected ? " selected" : ""}" data-key="${key}"${disabled ? " disabled" : ""}>${label}</button>`;
+    }).join("");
+    container.querySelector(".mini-nav[data-dir='-1']").disabled = viewYear <= minYear;
+    container.querySelector(".mini-nav[data-dir='1']").disabled = viewYear >= maxYear;
+  }
+
+  function updateText() { text.textContent = formatDate(value); }
+
+  field.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = dropdown.hidden;
+    closeAllMiniPickers(container);
+    if (willOpen) {
+      viewYear = Math.floor(value / 12);
+      renderGrid();
+      dropdown.hidden = false;
+    } else {
+      dropdown.hidden = true;
+    }
+  });
+
+  dropdown.addEventListener("click", (e) => {
+    const navBtn = e.target.closest(".mini-nav");
+    if (navBtn && !navBtn.disabled) {
+      viewYear = clamp(viewYear + Number(navBtn.dataset.dir), minYear, maxYear);
+      renderGrid();
+      return;
+    }
+    const monthBtn = e.target.closest(".mini-month-btn");
+    if (monthBtn && !monthBtn.disabled) {
+      value = Number(monthBtn.dataset.key);
+      updateText();
+      dropdown.hidden = true;
+      onChange(value);
+    }
+  });
+
+  updateText();
+  ALL_MINI_PICKERS.push({ container, dropdown });
+
+  return {
+    get: () => value,
+    set: (key) => { value = key; updateText(); },
+  };
+}
+
+document.addEventListener("click", (e) => {
+  ALL_MINI_PICKERS.forEach(({ container, dropdown }) => {
+    if (!dropdown.hidden && !container.contains(e.target)) dropdown.hidden = true;
+  });
+});
+
 let PICKERS = {};
 
 function setupPickerUI(suffix, defaultFrom, defaultTo) {
   const field = document.getElementById("field" + suffix);
   const fieldText = document.getElementById("fieldText" + suffix);
   const popover = document.getElementById("popover" + suffix);
-  const fromSel = document.getElementById("from" + suffix);
-  const toSel = document.getElementById("to" + suffix);
   const applyBtn = document.getElementById("apply" + suffix);
   const resetBtn = document.getElementById("reset" + suffix);
   const clearBtn = document.getElementById("clear" + suffix);
+  const fromWrap = document.getElementById("from" + suffix + "Wrap");
+  const toWrap = document.getElementById("to" + suffix + "Wrap");
 
   let committed = { from: defaultFrom, to: defaultTo };
+
+  const fromPicker = createMonthPicker(fromWrap, defaultFrom, false, (v) => {
+    if (v > toPicker.get()) toPicker.set(v);
+  });
+  const toPicker = createMonthPicker(toWrap, defaultTo, true, (v) => {
+    if (v < fromPicker.get()) fromPicker.set(v);
+  });
 
   function updateFieldText() {
     fieldText.textContent = periodLabelText({ fromKey: committed.from, toKey: committed.to });
   }
-  function syncSelectsToCommitted() {
-    fromSel.value = committed.from;
-    toSel.value = committed.to;
+  function syncPickersToCommitted() {
+    fromPicker.set(committed.from);
+    toPicker.set(committed.to);
   }
   function closePopover() {
     popover.hidden = true;
     field.classList.remove("active");
   }
   function openPopover() {
-    syncSelectsToCommitted();
+    syncPickersToCommitted();
     popover.hidden = false;
     field.classList.add("active");
   }
   function commit(from, to) {
     committed = { from, to };
-    syncSelectsToCommitted();
+    syncPickersToCommitted();
     updateFieldText();
     closePopover();
     applyPeriod();
@@ -388,26 +500,17 @@ function setupPickerUI(suffix, defaultFrom, defaultTo) {
     });
   });
 
-  fromSel.onchange = () => { if (Number(fromSel.value) > Number(toSel.value)) toSel.value = fromSel.value; };
-  toSel.onchange = () => { if (Number(toSel.value) < Number(fromSel.value)) fromSel.value = toSel.value; };
-
-  applyBtn.addEventListener("click", () => commit(Number(fromSel.value), Number(toSel.value)));
+  applyBtn.addEventListener("click", () => commit(fromPicker.get(), toPicker.get()));
   resetBtn.addEventListener("click", () => commit(defaultFrom, defaultTo));
   clearBtn.addEventListener("click", (e) => { e.stopPropagation(); commit(defaultFrom, defaultTo); });
 
   updateFieldText();
-  syncSelectsToCommitted();
+  syncPickersToCommitted();
 
   return { get: () => committed };
 }
 
 function setupPeriodControls() {
-  const opts = RAW.timeline.map((t) => `<option value="${t.key}">${t.label}</option>`).join("");
-  document.getElementById("fromA").innerHTML = opts;
-  document.getElementById("toA").innerHTML = opts;
-  document.getElementById("fromB").innerHTML = opts;
-  document.getElementById("toB").innerHTML = opts;
-
   const minKey = RAW.timeline[0].key;
   const maxKey = RAW.timeline[RAW.timeline.length - 1].key;
 
@@ -472,7 +575,7 @@ function render(A, B) {
   const labelA = periodLabelText(A);
   const labelB = B ? periodLabelText(B) : null;
 
-  renderKpis(monthlyA, monthlyB, labelA, labelB);
+  renderKpis(monthlyA, monthlyB, labelA, labelB, B ? A.toKey >= B.toKey : true);
   renderTrendCharts(monthlyA, monthlyB, labelA, labelB);
   document.getElementById("trendPeriodLabel").textContent = B
     ? `Период A: ${labelA} · Период B: ${labelB}`
@@ -509,7 +612,7 @@ function render(A, B) {
   document.getElementById("abcxyzSection").hidden = false;
 }
 
-function renderKpis(monthlyA, monthlyB, labelA, labelB) {
+function renderKpis(monthlyA, monthlyB, labelA, labelB, aIsLater) {
   const el = document.getElementById("kpiSection");
 
   if (!monthlyB) {
@@ -525,13 +628,20 @@ function renderKpis(monthlyA, monthlyB, labelA, labelB) {
     return;
   }
 
-  const totalsA = periodTotals(monthlyA);
-  const totalsB = periodTotals(monthlyB);
+  // Show whichever period is chronologically more recent as the primary (top) figure,
+  // regardless of whether the user assigned it to slot A or slot B.
+  const primary = aIsLater
+    ? { totals: periodTotals(monthlyA), label: labelA, name: "A" }
+    : { totals: periodTotals(monthlyB), label: labelB, name: "B" };
+  const secondary = aIsLater
+    ? { totals: periodTotals(monthlyB), label: labelB, name: "B" }
+    : { totals: periodTotals(monthlyA), label: labelA, name: "A" };
+
   const cards = [
-    { label: `Выручка, A (${labelA})`, value: RUB(totalsA.revenue), delta: pctDelta(totalsA.revenue, totalsB.revenue), deltaMoney: totalsA.revenue - totalsB.revenue, sub: `B (${labelB}): ${RUB(totalsB.revenue)}` },
-    { label: `Себестоимость, A (${labelA})`, value: RUB(totalsA.cost), delta: pctDelta(totalsA.cost, totalsB.cost), deltaMoney: totalsA.cost - totalsB.cost, inverse: true, sub: `B (${labelB}): ${RUB(totalsB.cost)}` },
-    { label: `Маржа, A (${labelA})`, value: RUB(totalsA.marginTg), delta: pctDelta(totalsA.marginTg, totalsB.marginTg), deltaMoney: totalsA.marginTg - totalsB.marginTg, sub: `B (${labelB}): ${RUB(totalsB.marginTg)}` },
-    { label: `Маржа %, A (${labelA})`, value: PCT(totalsA.marginPct), delta: { pp: totalsA.marginPct - totalsB.marginPct }, sub: `B (${labelB}): ${PCT(totalsB.marginPct)}` },
+    { label: `Выручка, ${primary.name} (${primary.label})`, value: RUB(primary.totals.revenue), delta: pctDelta(primary.totals.revenue, secondary.totals.revenue), deltaMoney: primary.totals.revenue - secondary.totals.revenue, sub: `${secondary.name} (${secondary.label}): ${RUB(secondary.totals.revenue)}` },
+    { label: `Себестоимость, ${primary.name} (${primary.label})`, value: RUB(primary.totals.cost), delta: pctDelta(primary.totals.cost, secondary.totals.cost), deltaMoney: primary.totals.cost - secondary.totals.cost, inverse: true, sub: `${secondary.name} (${secondary.label}): ${RUB(secondary.totals.cost)}` },
+    { label: `Маржа, ${primary.name} (${primary.label})`, value: RUB(primary.totals.marginTg), delta: pctDelta(primary.totals.marginTg, secondary.totals.marginTg), deltaMoney: primary.totals.marginTg - secondary.totals.marginTg, sub: `${secondary.name} (${secondary.label}): ${RUB(secondary.totals.marginTg)}` },
+    { label: `Маржа %, ${primary.name} (${primary.label})`, value: PCT(primary.totals.marginPct), delta: { pp: primary.totals.marginPct - secondary.totals.marginPct }, sub: `${secondary.name} (${secondary.label}): ${PCT(secondary.totals.marginPct)}` },
   ];
   el.innerHTML = cards.map(renderKpiCard).join("");
 }

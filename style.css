@@ -169,15 +169,63 @@ main { padding: 24px 28px 60px; max-width: 1400px; margin: 0 auto; }
 .range-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 16px; }
 .range-col { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .range-col label { font-size: 11px; color: var(--muted); }
-.range-col select {
+
+.mini-picker { position: relative; width: 100%; }
+.mini-picker-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
   padding: 7px 8px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
 }
+.mini-picker-field:hover { opacity: 1; border-color: var(--accent); }
+.mini-picker-icon { font-size: 11px; }
+.mini-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  width: 210px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+.mini-picker-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.mini-picker-year { font-size: 13px; font-weight: 700; }
+.mini-nav {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.mini-nav:hover:not(:disabled) { color: var(--text); opacity: 1; }
+.mini-nav:disabled { color: var(--border); cursor: not-allowed; }
+.mini-picker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mini-month-btn {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 8px 2px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.mini-month-btn:hover:not(:disabled) { background: var(--accent-soft); opacity: 1; }
+.mini-month-btn.selected { background: var(--accent); color: var(--btn-text); font-weight: 600; }
+.mini-month-btn:disabled { color: var(--border); cursor: not-allowed; }
+
 .popover-actions { display: flex; justify-content: space-between; align-items: center; }
 .link-btn {
   background: none;
