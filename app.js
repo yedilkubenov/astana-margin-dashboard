@@ -321,17 +321,92 @@ async function main() {
   }
 }
 
-function setupPeriodControls() {
-  const fromA = document.getElementById("fromA");
-  const toA = document.getElementById("toA");
-  const fromB = document.getElementById("fromB");
-  const toB = document.getElementById("toB");
-  const compareToggle = document.getElementById("compareToggle");
-  const periodBRow = document.getElementById("periodBRow");
+function computePreset(name) {
+  const maxKey = RAW.timeline[RAW.timeline.length - 1].key;
+  const minKey = RAW.timeline[0].key;
+  const curMonth = ((maxKey % 12) + 12) % 12;
+  const qStart = maxKey - (curMonth % 3);
+  let from, to;
+  switch (name) {
+    case "thisMonth": from = maxKey; to = maxKey; break;
+    case "prevMonth": from = maxKey - 1; to = maxKey - 1; break;
+    case "thisQuarter": from = qStart; to = maxKey; break;
+    case "prevQuarter": to = qStart - 1; from = to - 2; break;
+    case "thisYear": from = Math.floor(maxKey / 12) * 12; to = maxKey; break;
+    case "prevYear": { const y = Math.floor(maxKey / 12) - 1; from = y * 12; to = y * 12 + 11; break; }
+    default: from = maxKey; to = maxKey;
+  }
+  return { from: clamp(from, minKey, maxKey), to: clamp(to, minKey, maxKey) };
+}
 
+let PICKERS = {};
+
+function setupPickerUI(suffix, defaultFrom, defaultTo) {
+  const field = document.getElementById("field" + suffix);
+  const fieldText = document.getElementById("fieldText" + suffix);
+  const popover = document.getElementById("popover" + suffix);
+  const fromSel = document.getElementById("from" + suffix);
+  const toSel = document.getElementById("to" + suffix);
+  const applyBtn = document.getElementById("apply" + suffix);
+  const resetBtn = document.getElementById("reset" + suffix);
+  const clearBtn = document.getElementById("clear" + suffix);
+
+  let committed = { from: defaultFrom, to: defaultTo };
+
+  function updateFieldText() {
+    fieldText.textContent = periodLabelText({ fromKey: committed.from, toKey: committed.to });
+  }
+  function syncSelectsToCommitted() {
+    fromSel.value = committed.from;
+    toSel.value = committed.to;
+  }
+  function closePopover() {
+    popover.hidden = true;
+    field.classList.remove("active");
+  }
+  function openPopover() {
+    syncSelectsToCommitted();
+    popover.hidden = false;
+    field.classList.add("active");
+  }
+  function commit(from, to) {
+    committed = { from, to };
+    syncSelectsToCommitted();
+    updateFieldText();
+    closePopover();
+    applyPeriod();
+  }
+
+  field.addEventListener("click", () => {
+    if (popover.hidden) openPopover(); else closePopover();
+  });
+
+  popover.querySelectorAll(".preset-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const { from, to } = computePreset(btn.dataset.preset);
+      commit(from, to);
+    });
+  });
+
+  fromSel.onchange = () => { if (Number(fromSel.value) > Number(toSel.value)) toSel.value = fromSel.value; };
+  toSel.onchange = () => { if (Number(toSel.value) < Number(fromSel.value)) fromSel.value = toSel.value; };
+
+  applyBtn.addEventListener("click", () => commit(Number(fromSel.value), Number(toSel.value)));
+  resetBtn.addEventListener("click", () => commit(defaultFrom, defaultTo));
+  clearBtn.addEventListener("click", (e) => { e.stopPropagation(); commit(defaultFrom, defaultTo); });
+
+  updateFieldText();
+  syncSelectsToCommitted();
+
+  return { get: () => committed };
+}
+
+function setupPeriodControls() {
   const opts = RAW.timeline.map((t) => `<option value="${t.key}">${t.label}</option>`).join("");
-  fromA.innerHTML = opts; toA.innerHTML = opts;
-  fromB.innerHTML = opts; toB.innerHTML = opts;
+  document.getElementById("fromA").innerHTML = opts;
+  document.getElementById("toA").innerHTML = opts;
+  document.getElementById("fromB").innerHTML = opts;
+  document.getElementById("toB").innerHTML = opts;
 
   const minKey = RAW.timeline[0].key;
   const maxKey = RAW.timeline[RAW.timeline.length - 1].key;
@@ -341,40 +416,35 @@ function setupPeriodControls() {
   const latestYearMonths = RAW.perYear[latestYear].months;
   const defaultFromA = latestYear * 12 + latestYearMonths[0];
   const defaultToA = latestYear * 12 + latestYearMonths[latestYearMonths.length - 1];
-  fromA.value = defaultFromA;
-  toA.value = defaultToA;
 
   // Default Period B to the same month range, previous year (clamped to available data).
   const defaultFromB = clamp(defaultFromA - 12, minKey, maxKey);
   const defaultToB = clamp(defaultToA - 12, minKey, maxKey);
-  fromB.value = Math.min(defaultFromB, defaultToB);
-  toB.value = Math.max(defaultFromB, defaultToB);
 
-  fromA.onchange = () => {
-    if (Number(fromA.value) > Number(toA.value)) toA.value = fromA.value;
-    applyPeriod();
-  };
-  toA.onchange = () => {
-    if (Number(toA.value) < Number(fromA.value)) fromA.value = toA.value;
-    applyPeriod();
-  };
-  fromB.onchange = () => {
-    if (Number(fromB.value) > Number(toB.value)) toB.value = fromB.value;
-    applyPeriod();
-  };
-  toB.onchange = () => {
-    if (Number(toB.value) < Number(fromB.value)) fromB.value = toB.value;
-    applyPeriod();
-  };
+  PICKERS.A = setupPickerUI("A", defaultFromA, defaultToA);
+  PICKERS.B = setupPickerUI("B", Math.min(defaultFromB, defaultToB), Math.max(defaultFromB, defaultToB));
+
+  const compareToggle = document.getElementById("compareToggle");
+  const periodBRow = document.getElementById("periodBRow");
   compareToggle.onchange = () => {
     periodBRow.hidden = !compareToggle.checked;
     applyPeriod();
   };
+
+  document.addEventListener("click", (e) => {
+    ["A", "B"].forEach((suffix) => {
+      const field = document.getElementById("field" + suffix);
+      const popover = document.getElementById("popover" + suffix);
+      if (!popover.hidden && !field.contains(e.target) && !popover.contains(e.target)) {
+        popover.hidden = true;
+        field.classList.remove("active");
+      }
+    });
+  });
 }
 
 function readSelector(suffix) {
-  const fromKey = Number(document.getElementById("from" + suffix).value);
-  const toKey = Number(document.getElementById("to" + suffix).value);
+  const { from: fromKey, to: toKey } = PICKERS[suffix].get();
   const keys = RAW.timeline.filter((t) => t.key >= fromKey && t.key <= toKey).map((t) => t.key);
   const records = RAW.allRecords.filter((r) => { const k = periodKeyOf(r); return k >= fromKey && k <= toKey; });
   return { fromKey, toKey, keys, records };
@@ -446,9 +516,9 @@ function renderKpis(monthlyA, monthlyB, labelA, labelB) {
     const last = monthlyA[monthlyA.length - 1];
     const prev = monthlyA.length > 1 ? monthlyA[monthlyA.length - 2] : null;
     const cards = [
-      { label: `Выручка, ${last.label}`, value: RUB(last.revenue), delta: prev ? pctDelta(last.revenue, prev.revenue) : null },
-      { label: `Себестоимость, ${last.label}`, value: RUB(last.cost), delta: prev ? pctDelta(last.cost, prev.cost) : null, inverse: true },
-      { label: `Маржа, ${last.label}`, value: RUB(last.marginTg), delta: prev ? pctDelta(last.marginTg, prev.marginTg) : null },
+      { label: `Выручка, ${last.label}`, value: RUB(last.revenue), delta: prev ? pctDelta(last.revenue, prev.revenue) : null, deltaMoney: prev ? last.revenue - prev.revenue : null },
+      { label: `Себестоимость, ${last.label}`, value: RUB(last.cost), delta: prev ? pctDelta(last.cost, prev.cost) : null, deltaMoney: prev ? last.cost - prev.cost : null, inverse: true },
+      { label: `Маржа, ${last.label}`, value: RUB(last.marginTg), delta: prev ? pctDelta(last.marginTg, prev.marginTg) : null, deltaMoney: prev ? last.marginTg - prev.marginTg : null },
       { label: `Маржа %, ${last.label}`, value: PCT(last.marginPct), delta: prev ? { pp: last.marginPct - prev.marginPct } : null },
     ];
     el.innerHTML = cards.map(renderKpiCard).join("");
@@ -458,12 +528,17 @@ function renderKpis(monthlyA, monthlyB, labelA, labelB) {
   const totalsA = periodTotals(monthlyA);
   const totalsB = periodTotals(monthlyB);
   const cards = [
-    { label: `Выручка, A (${labelA})`, value: RUB(totalsA.revenue), delta: pctDelta(totalsA.revenue, totalsB.revenue), sub: `B (${labelB}): ${RUB(totalsB.revenue)}` },
-    { label: `Себестоимость, A (${labelA})`, value: RUB(totalsA.cost), delta: pctDelta(totalsA.cost, totalsB.cost), inverse: true, sub: `B (${labelB}): ${RUB(totalsB.cost)}` },
-    { label: `Маржа, A (${labelA})`, value: RUB(totalsA.marginTg), delta: pctDelta(totalsA.marginTg, totalsB.marginTg), sub: `B (${labelB}): ${RUB(totalsB.marginTg)}` },
+    { label: `Выручка, A (${labelA})`, value: RUB(totalsA.revenue), delta: pctDelta(totalsA.revenue, totalsB.revenue), deltaMoney: totalsA.revenue - totalsB.revenue, sub: `B (${labelB}): ${RUB(totalsB.revenue)}` },
+    { label: `Себестоимость, A (${labelA})`, value: RUB(totalsA.cost), delta: pctDelta(totalsA.cost, totalsB.cost), deltaMoney: totalsA.cost - totalsB.cost, inverse: true, sub: `B (${labelB}): ${RUB(totalsB.cost)}` },
+    { label: `Маржа, A (${labelA})`, value: RUB(totalsA.marginTg), delta: pctDelta(totalsA.marginTg, totalsB.marginTg), deltaMoney: totalsA.marginTg - totalsB.marginTg, sub: `B (${labelB}): ${RUB(totalsB.marginTg)}` },
     { label: `Маржа %, A (${labelA})`, value: PCT(totalsA.marginPct), delta: { pp: totalsA.marginPct - totalsB.marginPct }, sub: `B (${labelB}): ${PCT(totalsB.marginPct)}` },
   ];
   el.innerHTML = cards.map(renderKpiCard).join("");
+}
+
+function signedRub(n) {
+  const rounded = Math.round(n);
+  return (rounded >= 0 ? "+" : "") + rounded.toLocaleString("ru-RU") + " ₸";
 }
 
 function renderKpiCard(c) {
@@ -474,7 +549,8 @@ function renderKpiCard(c) {
       deltaHtml = `<div class="kpi-delta ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${c.delta.pp >= 0 ? "+" : ""}${c.delta.pp.toFixed(1).replace(".", ",")} п.п.</div>`;
     } else {
       const goodDir = c.inverse ? c.delta < 0 : c.delta >= 0;
-      deltaHtml = `<div class="kpi-delta ${goodDir ? "up" : "down"}">${c.delta >= 0 ? "▲" : "▼"} ${PCT(Math.abs(c.delta))}</div>`;
+      const moneyHtml = c.deltaMoney != null ? ` (${signedRub(c.deltaMoney)})` : "";
+      deltaHtml = `<div class="kpi-delta ${goodDir ? "up" : "down"}">${c.delta >= 0 ? "▲" : "▼"} ${PCT(Math.abs(c.delta))}${moneyHtml}</div>`;
     }
   }
   const subHtml = c.sub ? `<div class="muted" style="font-size:12px;margin-top:4px;">${c.sub}</div>` : "";

@@ -33,22 +33,82 @@
   <div id="errorState" class="state-msg error" hidden></div>
 
   <section id="periodSection" class="card" hidden>
-    <div class="period-controls">
-      <span class="period-label-text">Период A:</span>
-      <select id="fromA"></select>
-      <span class="muted">—</span>
-      <select id="toA"></select>
-      <span class="muted" id="periodInfoA"></span>
+    <div class="period-pickers">
+      <div class="period-picker">
+        <div class="period-picker-label">Период A</div>
+        <button type="button" class="picker-field" id="fieldA">
+          <span class="picker-icon">📅</span>
+          <span class="picker-field-text" id="fieldTextA"></span>
+          <span class="picker-clear" id="clearA" title="Сбросить">×</span>
+        </button>
+        <div class="picker-popover" id="popoverA" hidden>
+          <div class="preset-grid" data-suffix="A">
+            <button type="button" class="preset-btn" data-preset="prevMonth">Прошлый месяц</button>
+            <button type="button" class="preset-btn" data-preset="thisMonth">Этот месяц</button>
+            <button type="button" class="preset-btn" data-preset="prevQuarter">Прошлый квартал</button>
+            <button type="button" class="preset-btn" data-preset="thisQuarter">Этот квартал</button>
+            <button type="button" class="preset-btn" data-preset="prevYear">Прошлый год</button>
+            <button type="button" class="preset-btn" data-preset="thisYear">Этот год</button>
+          </div>
+          <div class="range-row">
+            <div class="range-col">
+              <label>Начало периода</label>
+              <select id="fromA"></select>
+            </div>
+            <span class="muted">—</span>
+            <div class="range-col">
+              <label>Конец периода</label>
+              <select id="toA"></select>
+            </div>
+          </div>
+          <div class="popover-actions">
+            <button type="button" class="link-btn" id="resetA">Сбросить</button>
+            <button type="button" class="apply-btn" id="applyA">Применить</button>
+          </div>
+        </div>
+        <div class="muted picker-info" id="periodInfoA"></div>
+      </div>
     </div>
+
     <label class="compare-toggle">
       <input type="checkbox" id="compareToggle"> Сравнить с другим периодом
     </label>
-    <div class="period-controls" id="periodBRow" hidden>
-      <span class="period-label-text">Период B:</span>
-      <select id="fromB"></select>
-      <span class="muted">—</span>
-      <select id="toB"></select>
-      <span class="muted" id="periodInfoB"></span>
+
+    <div class="period-pickers" id="periodBRow" hidden>
+      <div class="period-picker">
+        <div class="period-picker-label">Период B</div>
+        <button type="button" class="picker-field" id="fieldB">
+          <span class="picker-icon">📅</span>
+          <span class="picker-field-text" id="fieldTextB"></span>
+          <span class="picker-clear" id="clearB" title="Сбросить">×</span>
+        </button>
+        <div class="picker-popover" id="popoverB" hidden>
+          <div class="preset-grid" data-suffix="B">
+            <button type="button" class="preset-btn" data-preset="prevMonth">Прошлый месяц</button>
+            <button type="button" class="preset-btn" data-preset="thisMonth">Этот месяц</button>
+            <button type="button" class="preset-btn" data-preset="prevQuarter">Прошлый квартал</button>
+            <button type="button" class="preset-btn" data-preset="thisQuarter">Этот квартал</button>
+            <button type="button" class="preset-btn" data-preset="prevYear">Прошлый год</button>
+            <button type="button" class="preset-btn" data-preset="thisYear">Этот год</button>
+          </div>
+          <div class="range-row">
+            <div class="range-col">
+              <label>Начало периода</label>
+              <select id="fromB"></select>
+            </div>
+            <span class="muted">—</span>
+            <div class="range-col">
+              <label>Конец периода</label>
+              <select id="toB"></select>
+            </div>
+          </div>
+          <div class="popover-actions">
+            <button type="button" class="link-btn" id="resetB">Сбросить</button>
+            <button type="button" class="apply-btn" id="applyB">Применить</button>
+          </div>
+        </div>
+        <div class="muted picker-info" id="periodInfoB"></div>
+      </div>
     </div>
   </section>
 
