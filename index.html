@@ -141,11 +141,46 @@
 
   <section id="abcxyzSection" class="card" hidden>
     <h2>ABC-XYZ анализ по номенклатуре</h2>
-    <div class="subtitle" id="abcxyzPeriodLabel"></div>
+    <div class="period-pickers">
+      <div class="period-picker">
+        <div class="period-picker-label">Период для ABC-XYZ</div>
+        <button type="button" class="picker-field" id="fieldX">
+          <span class="picker-icon">📅</span>
+          <span class="picker-field-text" id="fieldTextX"></span>
+          <span class="picker-clear" id="clearX" title="Сбросить">×</span>
+        </button>
+        <div class="picker-popover" id="popoverX" hidden>
+          <div class="preset-grid" data-suffix="X">
+            <button type="button" class="preset-btn" data-preset="prevMonth">Прошлый месяц</button>
+            <button type="button" class="preset-btn" data-preset="thisMonth">Этот месяц</button>
+            <button type="button" class="preset-btn" data-preset="prevQuarter">Прошлый квартал</button>
+            <button type="button" class="preset-btn" data-preset="thisQuarter">Этот квартал</button>
+            <button type="button" class="preset-btn" data-preset="prevYear">Прошлый год</button>
+            <button type="button" class="preset-btn" data-preset="thisYear">Этот год</button>
+          </div>
+          <div class="range-row">
+            <div class="range-col">
+              <label>Начало периода</label>
+              <div class="mini-picker" id="fromXWrap"></div>
+            </div>
+            <span class="muted">—</span>
+            <div class="range-col">
+              <label>Конец периода</label>
+              <div class="mini-picker" id="toXWrap"></div>
+            </div>
+          </div>
+          <div class="popover-actions">
+            <button type="button" class="link-btn" id="resetX">Сбросить</button>
+            <button type="button" class="apply-btn" id="applyX">Применить</button>
+          </div>
+        </div>
+        <div class="muted picker-info" id="periodInfoX"></div>
+      </div>
+    </div>
     <p class="muted">
       ABC — по вкладу номенклатуры в выручку выбранного периода: сортируем по выручке по убыванию и берём нарастающий итог; пока накопленный % ≤80% от общей выручки — класс A, до 95% — B, остальное — C.<br>
       XYZ — по стабильности помесячных продаж (количество, шт.): CV, % (коэффициент вариации) = стандартное отклонение помесячных продаж ÷ среднемесячные продажи × 100. CV ≤10% — стабильный спрос (X), 10–25% — умеренные колебания (Y), &gt;25% или продажи менее чем в 3 месяцах периода — нерегулярный спрос (Z). Для XYZ нужно выбрать период не короче 2 месяцев.<br>
-      Классификация всегда считается по Периоду A (Период B, если включено сравнение, используется только для сравнения показателей выше, а не для ABC-XYZ).
+      Период здесь выбирается независимо от Периодов A и B выше.
     </p>
     <div id="matrixGrid" class="matrix-grid"></div>
     <div class="table-controls">

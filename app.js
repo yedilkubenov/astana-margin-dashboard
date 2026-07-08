@@ -172,7 +172,9 @@ function declineTable(records, dimension, keys) {
 }
 
 // ---------- period A vs period B decline/comparison table ----------
-function declineTableCompare(recordsA, recordsB, dimension) {
+// aIsLater tells us which side is chronologically more recent, so delta reflects
+// real growth/decline (later - earlier) instead of always being "A minus B".
+function declineTableCompare(recordsA, recordsB, dimension, aIsLater) {
   const keyFn = dimension === "sku" ? (r) => r.sku : (r) => r[dimension];
   const groupA = groupBy(recordsA, keyFn);
   const groupB = groupBy(recordsB, keyFn);
@@ -192,7 +194,9 @@ function declineTableCompare(recordsA, recordsB, dimension) {
     const mgB = recsB.reduce((s, r) => s + r.marginTg, 0);
     const marginPctA = revA !== 0 ? (mgA / revA) * 100 : null;
     const marginPctB = revB !== 0 ? (mgB / revB) * 100 : null;
-    const delta = marginPctA !== null && marginPctB !== null ? marginPctA - marginPctB : null;
+    const delta = marginPctA !== null && marginPctB !== null
+      ? (aIsLater ? marginPctA - marginPctB : marginPctB - marginPctA)
+      : null;
     const sample = recsA[0] || recsB[0];
     rows.push({
       key,
@@ -311,6 +315,7 @@ async function main() {
 
     setupPeriodControls();
     applyPeriod();
+    applyAbcXyzPeriod();
     document.getElementById("updatedAt").textContent = "Обновлено: " + new Date().toLocaleString("ru-RU");
   } catch (e) {
     document.getElementById("loadingState").hidden = true;
@@ -446,7 +451,7 @@ document.addEventListener("click", (e) => {
 
 let PICKERS = {};
 
-function setupPickerUI(suffix, defaultFrom, defaultTo) {
+function setupPickerUI(suffix, defaultFrom, defaultTo, onApply) {
   const field = document.getElementById("field" + suffix);
   const fieldText = document.getElementById("fieldText" + suffix);
   const popover = document.getElementById("popover" + suffix);
@@ -486,7 +491,7 @@ function setupPickerUI(suffix, defaultFrom, defaultTo) {
     syncPickersToCommitted();
     updateFieldText();
     closePopover();
-    applyPeriod();
+    onApply();
   }
 
   field.addEventListener("click", () => {
@@ -524,8 +529,9 @@ function setupPeriodControls() {
   const defaultFromB = clamp(defaultFromA - 12, minKey, maxKey);
   const defaultToB = clamp(defaultToA - 12, minKey, maxKey);
 
-  PICKERS.A = setupPickerUI("A", defaultFromA, defaultToA);
-  PICKERS.B = setupPickerUI("B", Math.min(defaultFromB, defaultToB), Math.max(defaultFromB, defaultToB));
+  PICKERS.A = setupPickerUI("A", defaultFromA, defaultToA, applyPeriod);
+  PICKERS.B = setupPickerUI("B", Math.min(defaultFromB, defaultToB), Math.max(defaultFromB, defaultToB), applyPeriod);
+  PICKERS.X = setupPickerUI("X", defaultFromA, defaultToA, applyAbcXyzPeriod);
 
   const compareToggle = document.getElementById("compareToggle");
   const periodBRow = document.getElementById("periodBRow");
@@ -535,7 +541,7 @@ function setupPeriodControls() {
   };
 
   document.addEventListener("click", (e) => {
-    ["A", "B"].forEach((suffix) => {
+    ["A", "B", "X"].forEach((suffix) => {
       const field = document.getElementById("field" + suffix);
       const popover = document.getElementById("popover" + suffix);
       if (!popover.hidden && !field.contains(e.target) && !popover.contains(e.target)) {
@@ -569,13 +575,21 @@ function applyPeriod() {
   render(A, B);
 }
 
+function applyAbcXyzPeriod() {
+  const X = readSelector("X");
+  document.getElementById("periodInfoX").textContent =
+    X.keys.length <= 1 ? "выбран 1 месяц" : `выбрано месяцев: ${X.keys.length}`;
+  renderAbcXyzSection(X);
+}
+
 function render(A, B) {
   const monthlyA = monthlyOverall(A.records, A.keys);
   const monthlyB = B ? monthlyOverall(B.records, B.keys) : null;
   const labelA = periodLabelText(A);
   const labelB = B ? periodLabelText(B) : null;
+  const aIsLater = B ? A.toKey >= B.toKey : true;
 
-  renderKpis(monthlyA, monthlyB, labelA, labelB, B ? A.toKey >= B.toKey : true);
+  renderKpis(monthlyA, monthlyB, labelA, labelB, aIsLater);
   renderTrendCharts(monthlyA, monthlyB, labelA, labelB);
   document.getElementById("trendPeriodLabel").textContent = B
     ? `Период A: ${labelA} · Период B: ${labelB}`
@@ -590,25 +604,26 @@ function render(A, B) {
       `Период: ${labelA}. Доля выручки и маржа считаются по выбранному периоду. «Итого» — за весь выбранный период целиком, дальше — помесячно (месяц указан с годом). Показаны только позиции с заметной долей в выручке периода.`;
   } else {
     const declineData = {};
-    for (const d of dims) declineData[d] = declineTableCompare(A.records, B.records, d);
-    renderDeclineSection(declineData, { type: "compare", labelA, labelB });
+    for (const d of dims) declineData[d] = declineTableCompare(A.records, B.records, d, aIsLater);
+    renderDeclineSection(declineData, { type: "compare", labelA, labelB, aIsLater });
     document.getElementById("declineHint").textContent =
-      `Сравнение маржи между Периодом A (${labelA}) и Периодом B (${labelB}). Доля выручки — в рамках Периода A. Показаны только позиции с заметной долей в объединённой выручке обоих периодов.`;
+      `Сравнение маржи между Периодом A (${labelA}) и Периодом B (${labelB}). Δ — рост/падение маржи от более раннего периода к более позднему. Доля выручки — в рамках Периода A. Показаны только позиции с заметной долей в объединённой выручке обоих периодов.`;
   }
 
-  const abc = abcAnalysis(A.records);
-  const xyz = xyzAnalysis(A.records, A.keys);
-  const hasXyz = A.keys.length >= 2;
+  document.getElementById("kpiSection").hidden = false;
+  document.getElementById("trendSection").hidden = false;
+  document.getElementById("declineSection").hidden = false;
+}
+
+function renderAbcXyzSection(X) {
+  const abc = abcAnalysis(X.records);
+  const xyz = xyzAnalysis(X.records, X.keys);
+  const hasXyz = X.keys.length >= 2;
   const combined = [...abc.entries()].map(([sku, a]) => {
     const x = xyz.get(sku) || { cv: NaN, xyz: null, activeCount: 0 };
     return { sku, ...a, cv: x.cv, xyz: x.xyz, activeCount: x.activeCount, cls: a.abc + (x.xyz || "") };
   });
   renderAbcXyz(combined, hasXyz);
-  document.getElementById("abcxyzPeriodLabel").textContent = `Период: ${labelA}`;
-
-  document.getElementById("kpiSection").hidden = false;
-  document.getElementById("trendSection").hidden = false;
-  document.getElementById("declineSection").hidden = false;
   document.getElementById("abcxyzSection").hidden = false;
 }
 
@@ -811,7 +826,7 @@ function compareModeValue(r, key) {
 function renderDeclineSection(dataByDim, mode) {
   function draw() {
     if (mode.type === "single") drawDeclineTable(dataByDim[currentDim], currentDim, mode.keys);
-    else drawDeclineTableCompare(dataByDim[currentDim], currentDim, mode.labelA, mode.labelB);
+    else drawDeclineTableCompare(dataByDim[currentDim], currentDim, mode.labelA, mode.labelB, mode.aIsLater);
   }
   document.querySelectorAll("#declineTabs .tab").forEach((btn) => {
     btn.onclick = () => {
@@ -851,13 +866,14 @@ function drawDeclineTable(rows, dim, keys) {
   }).join("") || `<tr><td colspan="${colCount}" class="muted">Нет данных, удовлетворяющих порогу значимости.</td></tr>`;
 }
 
-function drawDeclineTableCompare(rows, dim, labelA, labelB) {
+function drawDeclineTableCompare(rows, dim, labelA, labelB, aIsLater) {
   const label = dim === "sku" ? "Номенклатура" : dim === "category" ? "Категория" : "Фабрика";
   const table = document.getElementById("declineTable");
+  const deltaHeader = aIsLater ? "Δ п.п. (A−B, рост=позже)" : "Δ п.п. (B−A, рост=позже)";
   table.querySelector("thead").innerHTML = `<tr>
-    <th data-key="key">${label}</th><th data-key="shareA">Доля выручки, A</th><th data-key="marginPctA">Маржа %, A (${labelA})</th><th data-key="marginPctB">Маржа %, B (${labelB})</th><th data-key="delta">Δ п.п. (A−B)</th>
+    <th data-key="key">${label}</th><th data-key="shareA">Доля выручки, A</th><th data-key="marginPctA">Маржа %, A (${labelA})</th><th data-key="marginPctB">Маржа %, B (${labelB})</th><th data-key="delta">${deltaHeader}</th>
   </tr>`;
-  attachDeclineSortHandlers(table, () => drawDeclineTableCompare(rows, dim, labelA, labelB));
+  attachDeclineSortHandlers(table, () => drawDeclineTableCompare(rows, dim, labelA, labelB, aIsLater));
   const top = applyDeclineSort(rows, compareModeValue).slice(0, 30);
   table.querySelector("tbody").innerHTML = top.map((r) => `
     <tr>
