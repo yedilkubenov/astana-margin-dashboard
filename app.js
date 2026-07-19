@@ -1,5 +1,19 @@
-const SHEET_ID = "1vpfKyGL95e_c1aK919Qkj_lMxlC9fjHwayWy85CGowg";
-const YEAR_GIDS = { 2025: "1624628020", 2026: "246109221" };
+const CITY_CONFIG = {
+  astana: {
+    name: "Астана",
+    sheetId: "1vpfKyGL95e_c1aK919Qkj_lMxlC9fjHwayWy85CGowg",
+    sheetTitle: "Астана 2025-2026 / Запас товара",
+    yearGids: { 2025: "1624628020", 2026: "246109221" },
+  },
+  almaty: {
+    name: "Алматы",
+    sheetId: "1MdClAnrgx85zmw-610uWwU-jSJOgTPBz_02W4iyKzwg",
+    sheetTitle: "Алматы 2025-2026 / Запас товара",
+    yearGids: { 2025: "1624628020", 2026: "246109221" },
+  },
+};
+const savedCity = localStorage.getItem("city");
+let CURRENT_CITY = savedCity && CITY_CONFIG[savedCity] ? savedCity : "astana";
 
 const MONTH_ORDER = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
 
@@ -14,7 +28,18 @@ function toNumber(raw) {
 }
 
 function csvUrlForGid(gid) {
-  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}&t=${Date.now()}`;
+  const sheetId = CITY_CONFIG[CURRENT_CITY].sheetId;
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&t=${Date.now()}`;
+}
+
+function applyCityChrome() {
+  const city = CITY_CONFIG[CURRENT_CITY];
+  document.getElementById("pageTitle").textContent = `${city.name} 2025-2026 — Маржинальность и ABC-XYZ`;
+  document.getElementById("pageH1").textContent = `Маржинальность по товарным позициям — ${city.name}`;
+  const link = document.getElementById("sourceLink");
+  link.href = `https://docs.google.com/spreadsheets/d/${city.sheetId}/edit`;
+  link.textContent = `таблица «${city.sheetTitle}»`;
+  document.getElementById("citySelect").value = CURRENT_CITY;
 }
 
 async function fetchCsv(gid) {
@@ -278,7 +303,8 @@ let RAW = { perYear: {}, years: [], allRecords: [], timeline: [] };
 
 async function main() {
   try {
-    const yearEntries = Object.entries(YEAR_GIDS);
+    applyCityChrome();
+    const yearEntries = Object.entries(CITY_CONFIG[CURRENT_CITY].yearGids);
     const fetched = await Promise.all(yearEntries.map(async ([year, gid]) => {
       const text = await fetchCsv(gid);
       const rows = parseCsv(text);
@@ -976,6 +1002,20 @@ document.getElementById("refreshBtn").addEventListener("click", () => {
   main();
 });
 
+document.getElementById("citySelect").addEventListener("change", (e) => {
+  CURRENT_CITY = e.target.value;
+  localStorage.setItem("city", CURRENT_CITY);
+  document.getElementById("loadingState").hidden = false;
+  document.getElementById("errorState").hidden = true;
+  // Hide stale sections from the previous city so old numbers don't linger under the loading message.
+  document.getElementById("periodSection").hidden = true;
+  document.getElementById("kpiSection").hidden = true;
+  document.getElementById("trendSection").hidden = true;
+  document.getElementById("declineSection").hidden = true;
+  document.getElementById("abcxyzSection").hidden = true;
+  main();
+});
+
 function setThemeButtonIcon() {
   const isLight = document.documentElement.getAttribute("data-theme") === "light";
   document.getElementById("themeToggle").textContent = isLight ? "☀️" : "🌙";
@@ -995,4 +1035,5 @@ document.getElementById("themeToggle").addEventListener("click", () => {
 });
 
 setThemeButtonIcon();
+applyCityChrome();
 main();

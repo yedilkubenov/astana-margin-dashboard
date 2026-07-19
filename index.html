@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Астана 2025-2026 — Маржинальность и ABC-XYZ</title>
+<title id="pageTitle">Маржинальность и ABC-XYZ</title>
 <meta name="robots" content="noindex, nofollow">
 <script>
   (function () {
@@ -18,12 +18,16 @@
 <body>
 <header class="topbar">
   <div>
-    <h1>Маржинальность по товарным позициям</h1>
+    <h1 id="pageH1">Маржинальность по товарным позициям</h1>
     <div class="subtitle" id="periodLabel">Загрузка данных…</div>
   </div>
   <div class="topbar-actions">
     <span id="updatedAt" class="muted"></span>
     <button id="themeToggle" class="theme-toggle" title="Переключить тему">🌙</button>
+    <select id="citySelect" class="city-select" title="Выбор города">
+      <option value="astana">Астана</option>
+      <option value="almaty">Алматы</option>
+    </select>
     <button id="refreshBtn">Обновить</button>
   </div>
 </header>
@@ -214,7 +218,7 @@
 
 <footer class="footer">
   Данные подтягиваются напрямую из Google Sheets при каждом открытии страницы. Источник:
-  <a href="https://docs.google.com/spreadsheets/d/1vpfKyGL95e_c1aK919Qkj_lMxlC9fjHwayWy85CGowg/edit" target="_blank" rel="noopener">таблица «Астана 2025-2026 / Запас товара»</a>.
+  <a href="#" target="_blank" rel="noopener" id="sourceLink">таблица</a>.
 </footer>
 
 <script src="app.js"></script>
