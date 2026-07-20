@@ -516,20 +516,23 @@ function setupPickerUI(suffix, defaultFrom, defaultTo, onApply) {
     onApply();
   }
 
-  field.addEventListener("click", () => {
+  // setupPickerUI runs again on every reload (refresh / city switch), reusing the same static
+  // DOM nodes — assign via .onclick etc. (single-slot) rather than addEventListener, otherwise
+  // handlers stack up across reloads and start firing multiple times per click.
+  field.onclick = () => {
     if (popover.hidden) openPopover(); else closePopover();
-  });
+  };
 
   popover.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.onclick = () => {
       const { from, to } = computePreset(btn.dataset.preset);
       commit(from, to);
-    });
+    };
   });
 
-  applyBtn.addEventListener("click", () => commit(fromPicker.get(), toPicker.get()));
-  resetBtn.addEventListener("click", () => commit(defaultFrom, defaultTo));
-  clearBtn.addEventListener("click", (e) => { e.stopPropagation(); commit(defaultFrom, defaultTo); });
+  applyBtn.onclick = () => commit(fromPicker.get(), toPicker.get());
+  resetBtn.onclick = () => commit(defaultFrom, defaultTo);
+  clearBtn.onclick = (e) => { e.stopPropagation(); commit(defaultFrom, defaultTo); };
 
   updateFieldText();
   syncPickersToCommitted();
@@ -561,18 +564,20 @@ function setupPeriodControls() {
     periodBRow.hidden = !compareToggle.checked;
     applyPeriod();
   };
-
-  document.addEventListener("click", (e) => {
-    ["A", "B", "X"].forEach((suffix) => {
-      const field = document.getElementById("field" + suffix);
-      const popover = document.getElementById("popover" + suffix);
-      if (!popover.hidden && !field.contains(e.target) && !popover.contains(e.target)) {
-        popover.hidden = true;
-        field.classList.remove("active");
-      }
-    });
-  });
 }
+
+// Attached once at module scope (not inside setupPeriodControls, which reruns on every
+// refresh/city switch) so it doesn't stack duplicate listeners on document.
+document.addEventListener("click", (e) => {
+  ["A", "B", "X"].forEach((suffix) => {
+    const field = document.getElementById("field" + suffix);
+    const popover = document.getElementById("popover" + suffix);
+    if (!popover.hidden && !field.contains(e.target) && !popover.contains(e.target)) {
+      popover.hidden = true;
+      field.classList.remove("active");
+    }
+  });
+});
 
 function readSelector(suffix) {
   const { from: fromKey, to: toKey } = PICKERS[suffix].get();
